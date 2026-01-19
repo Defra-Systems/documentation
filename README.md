@@ -2,7 +2,7 @@
 
 Documentazione completa delle API REST del sistema CassaStore Backend.
 
-**Base URL**: `http://51.178.51.50:8080/api/v1`
+**Base URL**: `https://defrabackend.neocosmic.net/api/v1`
 
 ---
 
