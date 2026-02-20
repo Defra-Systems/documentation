@@ -1,961 +1,941 @@
-# CassaStore Backend API Documentation
+# CassaBackend - API Reference
 
-Documentazione completa delle API REST del sistema CassaStore Backend.
-
-**Base URL**: `https://defrabackend.neocosmic.net/api/v1`
-
----
-
-## Indice
-
-1. [Autenticazione](#autenticazione)
-2. [Licenze](#licenze)
-3. [Categorie](#categorie)
-4. [Prodotti](#prodotti)
-5. [Statistiche](#statistiche)
-6. [Loyalty (Programma Fedeltà)](#loyalty-programma-fedeltà)
-7. [Rate Limiting](#rate-limiting)
-8. [Sicurezza](#sicurezza)
+Base URL: `https://backend.cassaconnessa.it/api/v1`
 
 ---
 
 ## Autenticazione
 
-### Login Client
-**POST** `/auth/client/login`
+Tutti gli endpoint `/license/**` richiedono header:
+```
+Authorization: Bearer {accessToken}
+```
 
-Login per clienti.
+### Formato errori
 
-**Request Body:**
 ```json
 {
-  "email": "client@example.com",
-  "password": "Password123!@#"
+  "status": 404,
+  "message": "Descrizione errore",
+  "timestamp": "2026-02-15T10:30:00"
 }
 ```
 
+| Codice | Quando |
+|---|---|
+| 400 | Dati non validi |
+| 401 | Credenziali errate / token scaduto |
+| 403 | Account disabilitato |
+| 404 | Risorsa non trovata |
+| 409 | Conflitto (duplicato, stato errato) |
+| 429 | Account bloccato (troppi tentativi) |
+| 500 | Errore interno |
 
-
-
-**Response:**
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIs..."
-}
-```
-
-**Status Codes:**
-- `200 OK` - Login riuscito
-- `401 Unauthorized` - Credenziali non valide
-- `403 Forbidden` - Account disabilitato
-- `429 Too Many Requests` - Troppi tentativi (max 5/min)
 ---
 
-## Licenze
+## 1. Autenticazione (`/auth`)
 
-### Verifica Licenza
-**GET** `/license/{userId}/verify`
+### POST `/auth/login/client`
 
-Verifica lo stato di una licenza.
-
-**Headers:**
-```
-Authorization: Bearer {token}
+```json
+{ "email": "user@gmail.com", "password": "Password123!" }
 ```
 
-**Path Parameters:**
-- `userId` (UUID) - ID della licenza
-
-**Response:**
+**Response 200 (senza 2FA):**
 ```json
 {
-  "valid": true,
-  "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "licenseExpireAt": "2026-12-31",
-  "modules": ["vendite", "magazzino", "loyalty"],
-  "activities": ["Negozio1", "Negozio2"]
+  "accessToken": "eyJ...",
+  "refreshToken": "uuid",
+  "userId": "uuid",
+  "userType": "CLIENT"
 }
+```
+
+**Response 200 (con 2FA):**
+```json
+{ "requiresTwoFactor": true, "userId": "uuid" }
 ```
 
 ---
 
-## Categorie
+### POST `/auth/verify-2fa`
 
-### Crea Categoria
-**POST** `/license/{userId}/categories`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `userId` (UUID) - ID della licenza
-
-**Request Body:**
 ```json
-{
-  "name": "Elettronica",
-  "activityName": "Negozio1",
-  "description": "Prodotti elettronici"
-}
+{ "userId": "uuid", "userType": "CLIENT", "code": "123456" }
 ```
 
-**Response:**
+**Response 200:** stessa struttura di login.
+
+---
+
+### POST `/auth/refresh`
+
 ```json
-{
-  "id": 1,
-  "name": "Elettronica",
-  "activityName": "Negozio1",
-  "description": "Prodotti elettronici",
-  "createdAt": "2026-01-12T10:00:00",
-  "updatedAt": "2026-01-12T10:00:00"
-}
+{ "refreshToken": "uuid" }
+```
+
+**Response 200:**
+```json
+{ "accessToken": "eyJ...", "refreshToken": "new-uuid" }
 ```
 
 ---
 
-### Ottieni Tutte le Categorie
-**GET** `/license/{userId}/categories?activityName=Negozio1`
+### POST `/auth/logout`
 
-**Headers:**
-```
-Authorization: Bearer {token}
+```json
+{ "refreshToken": "uuid" }
 ```
 
-**Query Parameters:**
-- `activityName` (required) - Nome dell'activity
+**Response:** `204 No Content`
 
 ---
 
-### Ottieni Categoria per ID
-**GET** `/license/{userId}/categories/{categoryId}`
+### POST `/auth/password-reset/request`
 
-**Headers:**
+```json
+{ "email": "user@example.com", "userType": "CLIENT" }
 ```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `categoryId` (Long) - ID della categoria
 
 ---
 
-### Aggiorna Categoria
-**PUT** `/license/{userId}/categories/{categoryId}`
+### POST `/auth/password-reset/reset`
 
-**Headers:**
-```
-Authorization: Bearer {token}
+```json
+{ "token": "reset-token-uuid", "newPassword": "newPassword123" }
 ```
 
-**Path Parameters:**
-- `categoryId` (Long) - ID della categoria
+---
 
-**Request Body:**
+### POST `/auth/setup-2fa`
+
+```json
+{ "email": "user@example.com" }
+```
+
+**Response 200:**
 ```json
 {
-  "name": "Elettronica Avanzata",
-  "description": "Prodotti elettronici di ultima generazione"
+  "secret": "BASE32SECRET",
+  "otpAuthUri": "otpauth://totp/CassaConnessa:user@example.com?secret=BASE32SECRET&issuer=CassaConnessa"
 }
 ```
 
 ---
 
-### Elimina Categoria
-**DELETE** `/license/{userId}/categories/{categoryId}`
+### POST `/auth/confirm-2fa`
 
-**Headers:**
+```json
+{ "userId": "uuid", "userType": "CLIENT", "secret": "BASE32SECRET", "code": "123456" }
 ```
-Authorization: Bearer {token}
-```
-
-Soft delete di una categoria.
 
 ---
 
-## Prodotti
+## 2. Profilo e Attivita' (`/license`)
 
-### Crea Prodotto
-**POST** `/license/{userId}/products`
+### GET `/license/profile`
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
+Profilo completo dell'utente autenticato.
 
-**Path Parameters:**
-- `userId` (UUID) - ID della licenza
-
-**Request Body:**
+**Response 200:**
 ```json
 {
-  "name": "iPhone 15",
-  "activityName": "Negozio1",
-  "categoryId": 1,
-  "sku": "IPH15-001",
-  "barcode": "1234567890123",
-  "description": "iPhone 15 128GB",
-  "price": 899.99,
-  "cost": 650.00,
-  "stock": 10,
-  "minStock": 2
-}
-```
-
-**Response:**
-```json
-{
-  "id": 1,
-  "name": "iPhone 15",
-  "activityName": "Negozio1",
-  "categoryId": 1,
-  "categoryName": "Elettronica",
-  "sku": "IPH15-001",
-  "barcode": "1234567890123",
-  "price": 899.99,
-  "cost": 650.00,
-  "stock": 10,
-  "minStock": 2
+  "uuid": "uuid",
+  "name": "Mario",
+  "surname": "Rossi",
+  "email": "mario@example.com",
+  "licenseExpireAt": "2027-12-31",
+  "enabled": true,
+  "publicCode": "ABC123",
+  "twoFactorEnabled": false,
+  "activities": [
+    {
+      "id": "uuid",
+      "name": "Pizzeria Mario",
+      "vatID": "IT12345678901",
+      "type": "SOLE_PROPRIETORSHIP",
+      "businessName": "Mario Rossi",
+      "address": "Via Roma 1",
+      "city": "Milano",
+      "postalCode": "20100",
+      "province": "MI",
+      "phone": "+39 02 1234567",
+      "email": "info@pizzeriamario.it",
+      "sdiCode": "XXXXXXX",
+      "pec": "mario@pec.it",
+      "loyaltyConfig": {
+        "spendThreshold": 5.00,
+        "spendAmount": 10.00,
+        "pointsAwarded": 1,
+        "enabled": true
+      }
+    }
+  ]
 }
 ```
 
 ---
 
-### Ottieni Tutti i Prodotti
-**GET** `/license/{userId}/products?activityName=Negozio1`
+### PUT `/license/{userId}/activities/{activityId}`
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-- `activityName` (required) - Nome dell'activity
-
----
-
-### Ottieni Prodotti per Categoria
-**GET** `/license/{userId}/products?activityName=Negozio1&categoryId=1`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-- `activityName` (required)
-- `categoryId` (required)
-
----
-
-### Cerca Prodotti
-**GET** `/license/{userId}/products/search?activityName=Negozio1&keyword=iPhone`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-- `activityName` (required)
-- `keyword` (required)
-
-**Note:** La ricerca viene effettuata su nome, SKU e barcode.
-
----
-
-### Cerca Prodotto per Barcode
-**GET** `/license/{userId}/products/barcode/{barcode}?activityName=Negozio1`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `barcode` - Codice a barre
-
-**Query Parameters:**
-- `activityName` (required)
-
----
-
-### Ottieni Prodotto per ID
-**GET** `/license/{userId}/products/{productId}`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `productId` (Long)
-
----
-
-### Aggiorna Prodotto
-**PUT** `/license/{userId}/products/{productId}`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `productId` (Long)
-
-**Request Body:**
 ```json
 {
-  "name": "iPhone 15 Pro",
-  "price": 999.99,
-  "stock": 15
+  "businessName": "Mario Rossi S.r.l.",
+  "address": "Via Roma 1",
+  "city": "Milano",
+  "postalCode": "20100",
+  "province": "MI",
+  "phone": "+39 02 1234567",
+  "email": "info@pizzeriamario.it",
+  "sdiCode": "XXXXXXX",
+  "pec": "mario@pec.it"
 }
 ```
 
 ---
 
-### Aggiorna Stock
-**PATCH** `/license/{userId}/products/{productId}/stock`
+### GET `/license/{userId}/activities/{activityId}/loyalty-config`
 
-**Headers:**
+**Response 200:**
+```json
+{ "spendThreshold": 5.00, "spendAmount": 10.00, "pointsAwarded": 1, "enabled": true }
 ```
-Authorization: Bearer {token}
+
+---
+
+### PUT `/license/{userId}/activities/{activityId}/loyalty-config`
+
+```json
+{ "spendThreshold": 5.00, "spendAmount": 10.00, "pointsAwarded": 1, "enabled": true }
 ```
 
-**Path Parameters:**
-- `productId` (Long)
+> Ogni `spendAmount` euro spesi = `pointsAwarded` punti, con soglia minima `spendThreshold`.
 
-**Request Body:**
+---
+
+## 3. Categorie (`/license/{userId}/activities/{activityId}/categories`)
+
+### POST - Crea categoria
+
 ```json
 {
-  "quantity": 5
+  "name": "Pizze",
+  "description": "Tutte le pizze",
+  "parentCategoryId": null,
+  "defaultVat": 10
 }
 ```
 
-**Note:** Usare numeri positivi per aggiungere, negativi per sottrarre.
+**Response:** `201 Created`
 
 ---
 
-### Elimina Prodotto
-**DELETE** `/license/{userId}/products/{productId}`
+### GET - Tutte le categorie
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
+### GET `/root` - Solo categorie radice
 
-Soft delete di un prodotto.
+### GET `/{categoryId}` - Singola categoria
+
+### GET `/{categoryId}/subcategories` - Sottocategorie
 
 ---
 
-## Statistiche
+### PUT `/{categoryId}` - Aggiorna categoria
 
-### Registra Vendita
-**POST** `/license/{userId}/statistics`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `userId` (UUID)
-
-**Request Body:**
 ```json
 {
-  "activityName": "Negozio1",
-  "amount": 899.99,
-  "paymentMethod": "CARD",
-  "items": 1,
-  "notes": "Vendita iPhone 15"
-}
-```
-
-**Payment Methods:**
-- `CASH` - Contanti
-- `CARD` - Carta
-- `BANK_TRANSFER` - Bonifico
-- `OTHER` - Altro
-
----
-
-### Ottieni Statistiche per Activity
-**GET** `/license/{userId}/statistics?activityName=Negozio1`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-- `activityName` (required)
-
----
-
-### Ottieni Statistiche per Periodo
-**GET** `/license/{userId}/statistics/period?activityName=Negozio1&startDate=2026-01-01&endDate=2026-01-31`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-- `activityName` (required)
-- `startDate` (required, formato: YYYY-MM-DD)
-- `endDate` (required, formato: YYYY-MM-DD)
-
----
-
-### Ottieni Totale per Periodo
-**GET** `/license/{userId}/statistics/total?activityName=Negozio1&startDate=2026-01-01&endDate=2026-01-31`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-- `activityName` (required)
-- `startDate` (required)
-- `endDate` (required)
-
-**Response:**
-```json
-{
-  "total": 15789.50,
-  "count": 42,
-  "averageTransaction": 376.18
+  "name": "Pizze Speciali",
+  "description": "Pizze premium",
+  "parentCategoryId": null,
+  "defaultVat": 10,
+  "color": "#FF0000",
+  "icon": "pizza",
+  "imageUrl": "https://...",
+  "sortOrder": 1,
+  "vatNature": null,
+  "visibleRetail": true,
+  "visibleRestaurant": true,
+  "visibleTakeaway": false,
+  "hidden": false,
+  "active": true,
+  "fiscal": true
 }
 ```
 
 ---
 
-### Ottieni Statistica per ID
-**GET** `/license/{userId}/statistics/{statisticId}`
+### DELETE `/{categoryId}` - Elimina categoria
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `statisticId` (Long)
+**Response:** `204 No Content` — errore `409` se ha prodotti associati.
 
 ---
 
-### Aggiorna Statistica
-**PUT** `/license/{userId}/statistics/{statisticId}`
+## 4. Prodotti (`/license/{userId}/activities/{activityId}/products`)
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
+### POST - Crea prodotto
 
-**Path Parameters:**
-- `statisticId` (Long)
-
----
-
-### Elimina Statistica
-**DELETE** `/license/{userId}/statistics/{statisticId}`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Soft delete di una statistica.
-
----
-
-## Loyalty (Programma Fedeltà)
-
-### Crea Cliente Fedeltà
-**POST** `/license/{userId}/loyalty`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Crea un nuovo cliente nel programma fedeltà.
-
-**Path Parameters:**
-- `userId` (UUID) - ID della licenza
-
-**Request Body:**
 ```json
 {
-  "activityName": "Negozio1",
-  "name": "Giovanni",
-  "surname": "Verdi",
-  "email": "giovanni.verdi@example.com",
-  "phone": "3331234567",
-  "initialCredito": 50.00,
-  "sconto": 10,
+  "categoryId": "uuid",
+  "name": "Margherita",
+  "description": "Pizza classica",
+  "barcode": "1234567890",
+  "imageUrl": "https://...",
+  "color": "#FFA500",
+  "basePrice": 8.00,
+  "iva": 10
+}
+```
+
+**Response:** `201 Created`
+
+---
+
+### GET - Tutti i prodotti
+
+### GET `?categoryId={uuid}` - Per categoria
+
+### GET `?barcode={code}` - Per barcode
+
+### GET `/{productId}` - Singolo prodotto
+
+---
+
+### PUT `/{productId}` - Aggiorna prodotto
+
+```json
+{
+  "name": "Margherita XL",
+  "description": "Pizza classica grande",
+  "barcode": "1234567890",
+  "imageUrl": "https://...",
+  "color": "#FFA500",
+  "basePrice": 10.00,
+  "priceList2": 12.00,
+  "priceList3": 11.00,
+  "priceList4": 0,
+  "iva": 10,
+  "sortOrder": 1,
+  "vatNature": null,
+  "active": true,
+  "fiscal": true
+}
+```
+
+---
+
+### DELETE `/{productId}` - Elimina prodotto
+
+**Response:** `204 No Content`
+
+---
+
+### POST `/{productId}/ingredients` - Aggiungi ingrediente (magazzino)
+
+```json
+{ "warehouseItemId": "uuid", "quantityUsed": 0.3 }
+```
+
+**Response:** `201 Created`
+
+---
+
+### GET `/{productId}/ingredients`
+
+### DELETE `/{productId}/ingredients/{warehouseItemId}` → `204 No Content`
+
+---
+
+## 5. Varianti (`/license/{userId}/activities/{activityId}/variants`)
+
+### POST - Crea variante
+
+```json
+{
+  "name": "Extra mozzarella",
+  "pricePlus": 2.00,
+  "priceMinus": 0,
+  "categoryId": "uuid-or-null",
+  "productId": null
+}
+```
+
+> Se `categoryId` e' valorizzato, la variante si applica a tutti i prodotti di quella categoria. Se `productId` e' valorizzato, solo a quel prodotto.
+
+**Response:** `201 Created`
+
+---
+
+### GET - Lista varianti
+
+Filtri opzionali: `?categoryId={uuid}` oppure `?productId={uuid}`
+
+### GET `/{variantId}` - Singola variante
+
+---
+
+### PUT `/{variantId}` - Aggiorna variante
+
+```json
+{
+  "name": "Extra mozzarella di bufala",
+  "pricePlus": 2.50,
+  "priceMinus": 0,
+  "categoryId": null,
+  "productId": "uuid",
+  "sortOrder": 1,
   "active": true
 }
 ```
 
-**Note:**
-- Un cliente può avere UNA SOLA carta fedeltà per activity (vincolo univoco)
-- `initialCredito` è opzionale (default: 0)
-- `sconto` è opzionale, valore da 0 a 100 (default: 0)
+---
 
-**Response:**
+### DELETE `/{variantId}` → `204 No Content`
+
+---
+
+## 6. Magazzino (`/license/{userId}/activities/{activityId}/warehouse`)
+
+### POST - Crea articolo
+
+```json
+{ "name": "Farina 00", "quantity": 50.0, "costPrice": 1.20 }
+```
+
+**Response:** `201 Created`
+
+---
+
+### GET - Tutti gli articoli
+
+### GET `/below-minimum` - Articoli sotto soglia minima
+
+### GET `/{itemId}` - Singolo articolo
+
+---
+
+### PUT `/{itemId}` - Aggiorna articolo
+
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "userId": "550e8400-e29b-41d4-a716-446655440000",
-  "activityName": "Negozio1",
-  "name": "Giovanni",
-  "surname": "Verdi",
-  "email": "giovanni.verdi@example.com",
-  "phone": "3331234567",
-  "points": 0,
-  "credito": 50.00,
-  "sconto": 10,
-  "enrolledAt": "2026-01-12T10:00:00",
+  "name": "Farina 00",
+  "description": "Farina tipo 00",
+  "barcode": "123456",
+  "unit": "kg",
+  "costPrice": 1.50,
+  "minQuantity": 5.0,
   "active": true
 }
 ```
 
-**Status Codes:**
-- `201 Created` - Cliente creato
-- `409 Conflict` - Cliente già esistente per questa activity
+---
+
+### POST `/{itemId}/add-stock`
+
+```json
+{ "amount": 25.0 }
+```
 
 ---
 
-### Ottieni Tutti i Clienti Fedeltà
-**GET** `/license/{userId}/loyalty?activityName=Negozio1`
+### POST `/{itemId}/deduct-stock`
 
-**Headers:**
-```
-Authorization: Bearer {token}
+```json
+{ "amount": 10.0 }
 ```
 
-**Query Parameters:**
-- `activityName` (required)
+Errore `400` se quantita' insufficiente.
 
-**Response:**
+---
+
+### DELETE `/{itemId}` → `204 No Content`
+
+---
+
+## 7. Fidelizzazione (`/license/{userId}/activities/{activityId}/loyalty`)
+
+### Clienti
+
+#### POST `/customers` - Crea cliente
+
+```json
+{ "name": "Anna", "surname": "Verdi", "email": "anna@example.com", "phone": "+39123456789" }
+```
+
+**Response:** `201 Created` — errore `400` se email o telefono gia' registrati.
+
+---
+
+#### GET `/customers` - Lista clienti
+
+`?activeOnly=true` per filtrare solo attivi.
+
+---
+
+#### GET `/customers/search`
+
+- `?email=anna@example.com` → cliente singolo
+- `?phone=+39123456789` → cliente singolo
+- `?name=Anna` → array di clienti
+
+---
+
+#### GET `/customers/{customerId}`
+
+#### PUT `/customers/{customerId}` - Aggiorna cliente
+
+```json
+{
+  "name": "Anna",
+  "surname": "Verdi",
+  "email": "anna@example.com",
+  "phone": "+39123456789",
+  "active": true,
+  "activityIds": ["uuid1"]
+}
+```
+
+Tutti i campi opzionali (null = non modificare).
+
+---
+
+#### POST `/customers/{customerId}/points/add`
+
+```json
+{ "amount": 10 }
+```
+
+#### POST `/customers/{customerId}/points/subtract`
+
+```json
+{ "amount": 5 }
+```
+
+Errore `400` se punti insufficienti.
+
+---
+
+#### POST `/customers/{customerId}/credit/add`
+
+```json
+{ "amount": 50.00 }
+```
+
+#### POST `/customers/{customerId}/credit/use`
+
+```json
+{ "amount": 20.00 }
+```
+
+Errore `400` se credito insufficiente.
+
+---
+
+#### PUT `/customers/{customerId}/discount`
+
+```json
+{ "discount": 15 }
+```
+
+---
+
+#### POST `/customers/{customerId}/rewards/{rewardId}/redeem`
+
+Riscatta un premio sottraendo i punti necessari. Se tipo `CREDIT`, aggiunge il valore come credito al cliente.
+
+**Response 200:** LoyaltyCustomer aggiornato.
+
+---
+
+#### DELETE `/customers/{customerId}` → `204 No Content`
+
+---
+
+### Campagne
+
+#### POST `/campaigns` - Crea campagna sconto
+
+```json
+{
+  "name": "Estate 2026",
+  "discountPercent": 20,
+  "global": false,
+  "categoryIds": ["uuid1", "uuid2"],
+  "startDate": "2026-06-01T00:00:00",
+  "endDate": "2026-08-31T23:59:59"
+}
+```
+
+- `global: true` → sconto su tutto il catalogo
+- `endDate: null` → nessuna scadenza
+
+**Response:** `201 Created`
+
+---
+
+#### GET `/campaigns` - Campagne attive
+
+#### DELETE `/campaigns/{campaignId}` → `204 No Content`
+
+---
+
+### Premi
+
+#### POST `/rewards` - Crea premio
+
+```json
+{
+  "pointsCost": 100,
+  "rewardType": "CREDIT",
+  "value": 10.00,
+  "description": "10 euro di credito"
+}
+```
+
+| rewardType | Effetto al riscatto |
+|---|---|
+| `CREDIT` | Aggiunge `value` euro come credito |
+| `PURCHASE_DISCOUNT` | `value` = percentuale sconto |
+| `VOUCHER` | `value` = valore del buono |
+
+**Response:** `201 Created`
+
+---
+
+#### GET `/rewards` - Premi attivi
+
+---
+
+## 8. Scontrini (`/license/{userId}/activities/{activityId}/receipts`)
+
+### POST `/preview` - Anteprima con sconti calcolati
+
+Chiamare prima di battere lo scontrino. Il backend calcola automaticamente gli sconti applicabili (campagne attive + sconto personale del cliente loyalty) e restituisce gli articoli con `discountPercent` valorizzato.
+
+**Request:**
+```json
+{
+  "items": [
+    {
+      "productId": "uuid",
+      "productName": "Margherita",
+      "categoryId": "cat-uuid",
+      "categoryLabel": "Pizze",
+      "quantity": 2,
+      "unitPrice": 8.00,
+      "vat": 10,
+      "discountEuro": null
+    }
+  ],
+  "loyaltyCustomerId": "uuid-or-null"
+}
+```
+
+**Response 200:** array di ReceiptItem con sconti applicati:
 ```json
 [
   {
-    "id": "550e8400-e29b-41d4-a716-446655440001",
-    "name": "Giovanni",
-    "surname": "Verdi",
-    "points": 150,
-    "credito": 75.50,
-    "sconto": 10,
-    "active": true
+    "productId": "uuid",
+    "productName": "Margherita",
+    "categoryId": "cat-uuid",
+    "categoryLabel": "Pizze",
+    "quantity": 2,
+    "unitPrice": 8.00,
+    "vat": 10,
+    "discountPercent": 10,
+    "discountEuro": null
   }
 ]
 ```
 
 ---
 
-### Ottieni Solo Clienti Attivi
-**GET** `/license/{userId}/loyalty?activityName=Negozio1&activeOnly=true`
+### POST - Salva scontrino
 
-**Headers:**
-```
-Authorization: Bearer {token}
+Il backend ricalcola gli sconti prima di salvare. Non e' necessario passare `discountPercent` — viene sempre ignorato e ricalcolato. Passare solo `discountEuro` per sconti manuali del cassiere.
+
+**Request:**
+```json
+{
+  "documentType": "FISCAL",
+  "items": [
+    {
+      "productId": "uuid",
+      "productName": "Margherita",
+      "categoryId": "cat-uuid",
+      "categoryLabel": "Pizze",
+      "quantity": 2,
+      "unitPrice": 8.00,
+      "vat": 10,
+      "discountEuro": null
+    }
+  ],
+  "loyaltyCustomerId": "uuid-or-null",
+  "receiptNo": 1,
+  "rtReceiptNo": null,
+  "operatorCode": "OP01",
+  "operatorName": "Mario",
+  "paymentMethod": "CONTANTI"
+}
 ```
 
-**Query Parameters:**
-- `activityName` (required)
-- `activeOnly` (required) - true per solo attivi
+| paymentMethod | |
+|---|---|
+| `CONTANTI` | Contanti |
+| `ELETTRONICO` | Carta / POS |
+| `NON_RISCOSSO` | Non riscosso |
+| `BONIFICO` | Bonifico |
+| `ASSEGNO` | Assegno |
+
+| documentType | Scarico magazzino | Punti loyalty |
+|---|---|---|
+| `FISCAL` | Si | Si (se loyalty config attiva) |
+| `NON_FISCAL` | No | No |
+
+**Response:** `201 Created` con oggetto Receipt.
 
 ---
 
-### Cerca Cliente per Email
-**GET** `/license/{userId}/loyalty/search?activityName=Negozio1&email=giovanni.verdi@example.com`
+### GET - Scontrini per attivita'
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
+### GET `/{receiptId}` - Singolo scontrino
 
-**Query Parameters:**
-- `activityName` (required)
-- `email` (required)
+---
 
-**Response:**
+## 9. Statistiche (`/license/{userId}/activities/{activityId}/statistics`)
+
+Le statistiche vengono aggiornate automaticamente ad ogni scontrino salvato. Solo lettura.
+
+### GET - Statistiche per attivita'
+
+Filtri opzionali:
+- `?statisticType=DAILY_REVENUE`
+- `?startDate=2026-01-01&endDate=2026-01-31`
+- Senza parametri: tutte
+
+**Formato campo `data` per `DAILY_REVENUE`:**
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "name": "Giovanni",
-  "surname": "Verdi",
-  "email": "giovanni.verdi@example.com",
-  "points": 150,
-  "credito": 75.50,
-  "sconto": 10
+  "total": 1250.00,
+  "transactions": 38,
+  "avgTicket": 32.89,
+  "fiscalTotal": 1100.00,
+  "fiscalTransactions": 35,
+  "cashTotal": 600.00,
+  "cardTotal": 500.00
 }
 ```
 
 ---
 
-### Cerca Cliente per Telefono
-**GET** `/license/{userId}/loyalty/search?activityName=Negozio1&phone=3331234567`
+## Modelli Dati
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
+### ClientUser
 
-**Query Parameters:**
-- `activityName` (required)
-- `phone` (required)
-
----
-
-### Cerca Clienti per Nome
-**GET** `/license/{userId}/loyalty/search?activityName=Negozio1&name=Giovanni`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Query Parameters:**
-- `activityName` (required)
-- `name` (required)
-
-**Note:** Cerca sia nel nome che nel cognome (case-insensitive).
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| uuid | UUID | ID |
+| name | String | Nome |
+| surname | String | Cognome |
+| email | String | Email |
+| licenseExpireAt | LocalDate | Scadenza licenza |
+| enabled | boolean | Account attivo |
+| publicCode | String | Codice pubblico licenza |
+| twoFactorEnabled | boolean | 2FA attivo |
 
 ---
 
-### Ottieni Cliente per ID
-**GET** `/license/{userId}/loyalty/{customerId}`
+### Activity
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| name | String | Nome attivita' |
+| vatID | String | Partita IVA |
+| type | ActivityType | Tipo societa' |
+| businessName | String | Ragione sociale |
+| address | String | Indirizzo |
+| city | String | Citta' |
+| postalCode | String | CAP |
+| province | String | Provincia |
+| phone | String | Telefono |
+| email | String | Email |
+| sdiCode | String | Codice SDI |
+| pec | String | PEC |
+| loyaltyConfig | LoyaltyConfig | Configurazione punti |
 
-**Path Parameters:**
-- `customerId` (String)
-
----
-
-### Aggiorna Cliente Fedeltà
-**PUT** `/license/{userId}/loyalty/{customerId}`
-
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-**Path Parameters:**
-- `customerId` (String)
-
-**Request Body:**
-```json
-{
-  "name": "Giovanni",
-  "surname": "Verdi",
-  "email": "newemail@example.com",
-  "phone": "3337654321",
-  "active": true
-}
-```
-
-**Note:** I campi `points`, `credito` e `sconto` NON possono essere modificati tramite questo endpoint.
+**ActivityType:** `SOLE_PROPRIETORSHIP`, `SIMPLE_PARTNERSHIP`, `GENERAL_PARTNERSHIP`, `LIMITED_PARTNERSHIP`, `LIMITED_LIABILITY_COMPANY`, `JOINT_STOCK_COMPANY`, `COOPERATIVE`
 
 ---
 
-### Aggiungi Punti
-**POST** `/license/{userId}/loyalty/{customerId}/points/add`
+### Category
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Aggiunge punti al cliente.
-
-**Path Parameters:**
-- `customerId` (String)
-
-**Request Body:**
-```json
-{
-  "points": 50
-}
-```
-
-**Validazione:**
-- `points` >= 1
-
-**Response:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "name": "Giovanni",
-  "surname": "Verdi",
-  "points": 200,
-  "credito": 75.50,
-  "sconto": 10,
-  "lastTransactionAt": "2026-01-12T11:30:00"
-}
-```
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID (`@JsonProperty("id")`) |
+| activityId | UUID | Attivita' |
+| parentCategoryId | UUID | Categoria padre (null = radice) |
+| name | String | Nome |
+| description | String | Descrizione |
+| defaultVat | Integer | IVA predefinita |
+| color | String | Colore hex |
+| icon | String | Icona |
+| imageUrl | String | URL immagine |
+| sortOrder | int | Ordinamento |
+| vatNature | String | Natura IVA (ES, NI, AL, VI) |
+| visibleRetail | boolean | Visibile modalita' retail |
+| visibleRestaurant | boolean | Visibile modalita' ristorante |
+| visibleTakeaway | boolean | Visibile modalita' asporto |
+| hidden | boolean | Nascosta |
+| active | boolean | Attiva |
+| fiscal | boolean | Fiscale |
 
 ---
 
-### Sottrai Punti
-**POST** `/license/{userId}/loyalty/{customerId}/points/subtract`
+### Product
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Sottrae punti dal cliente.
-
-**Path Parameters:**
-- `customerId` (String)
-
-**Request Body:**
-```json
-{
-  "points": 30
-}
-```
-
-**Validazione:**
-- `points` >= 1
-- Il cliente deve avere abbastanza punti
-
-**Status Codes:**
-- `200 OK` - Punti sottratti
-- `400 Bad Request` - Punti insufficienti
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID (`@JsonProperty("id")`) |
+| categoryId | UUID | Categoria |
+| name | String | Nome |
+| description | String | Descrizione |
+| barcode | String | Codice a barre |
+| imageUrl | String | URL immagine |
+| color | String | Colore |
+| basePrice | BigDecimal | Prezzo base (listino 1) |
+| priceList2 | BigDecimal | Prezzo listino 2 |
+| priceList3 | BigDecimal | Prezzo listino 3 |
+| priceList4 | BigDecimal | Prezzo listino 4 |
+| iva | int | IVA (%) |
+| sortOrder | int | Ordinamento |
+| vatNature | String | Natura IVA |
+| active | boolean | Attivo |
+| fiscal | boolean | Fiscale |
 
 ---
 
-### Ricarica Credito
-**POST** `/license/{userId}/loyalty/{customerId}/credito/add`
+### Variant
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Ricarica credito sulla carta fedeltà.
-
-**Path Parameters:**
-- `customerId` (String)
-
-**Request Body:**
-```json
-{
-  "importo": 25.00
-}
-```
-
-**Validazione:**
-- `importo` > 0.00
-
-**Response:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "name": "Giovanni",
-  "surname": "Verdi",
-  "points": 170,
-  "credito": 100.50,
-  "sconto": 10,
-  "lastTransactionAt": "2026-01-12T11:40:00"
-}
-```
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| name | String | Nome (es. "Extra mozzarella") |
+| pricePlus | BigDecimal | Sovrapprezzo |
+| priceMinus | BigDecimal | Sconto |
+| categoryId | UUID | Categoria associata (nullable) |
+| productId | UUID | Prodotto associato (nullable) |
+| active | boolean | Attiva |
+| sortOrder | int | Ordinamento |
 
 ---
 
-### Usa Credito
-**POST** `/license/{userId}/loyalty/{customerId}/credito/use`
+### LoyaltyConfig
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Utilizza credito dalla carta fedeltà.
-
-**Path Parameters:**
-- `customerId` (String)
-
-**Request Body:**
-```json
-{
-  "importo": 15.00
-}
-```
-
-**Validazione:**
-- `importo` > 0.00
-- Il cliente deve avere abbastanza credito
-
-**Status Codes:**
-- `200 OK` - Credito utilizzato
-- `400 Bad Request` - Credito insufficiente
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| spendThreshold | BigDecimal | Spesa minima per guadagnare punti |
+| spendAmount | BigDecimal | Ogni X euro = 1 scaglione |
+| pointsAwarded | int | Punti per scaglione |
+| enabled | boolean | Programma attivo |
 
 ---
 
-### Aggiorna Sconto
-**PUT** `/license/{userId}/loyalty/{customerId}/sconto`
+### LoyaltyCustomer
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Aggiorna lo sconto personalizzato del cliente.
-
-**Path Parameters:**
-- `customerId` (String)
-
-**Request Body:**
-```json
-{
-  "sconto": 15
-}
-```
-
-**Validazione:**
-- `sconto` tra 0 e 100
-
-**Response:**
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440001",
-  "name": "Giovanni",
-  "surname": "Verdi",
-  "points": 170,
-  "credito": 85.50,
-  "sconto": 15
-}
-```
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityIds | List\<UUID\> | Attivita' associate |
+| name, surname | String | Anagrafica |
+| email, phone | String | Contatti (nullable) |
+| points | int | Punti accumulati |
+| credit | BigDecimal | Credito (€) |
+| discount | int | Sconto personale (%) |
+| active | boolean | Attivo |
+| createdAt | LocalDateTime | Data creazione |
+| lastTransactionAt | LocalDateTime | Ultima transazione |
 
 ---
 
-### Elimina Cliente Fedeltà
-**DELETE** `/license/{userId}/loyalty/{customerId}`
+### DiscountCampaign
 
-**Headers:**
-```
-Authorization: Bearer {token}
-```
-
-Soft delete di un cliente fedeltà.
-
-**Path Parameters:**
-- `customerId` (String)
-
-**Status Codes:**
-- `204 No Content`
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| name | String | Nome campagna |
+| discountPercent | int | Sconto (%) |
+| global | boolean | Applicata a tutto il catalogo |
+| categoryIds | List\<UUID\> | Categorie specifiche (se non global) |
+| startDate | LocalDateTime | Inizio |
+| endDate | LocalDateTime | Fine (null = senza scadenza) |
+| active | boolean | Attiva |
 
 ---
 
-## Rate Limiting
+### PointsReward
 
-- **Login endpoint**: 5 richieste/minuto per IP
-- **Tutti gli altri endpoint**: 100 richieste/minuto per IP
-
-**Response quando si supera il limite:**
-```
-Status: 429 Too Many Requests
-```
-
----
-
-## Sicurezza
-
-### Autenticazione JWT
-
-Tutti gli endpoint (tranne login) richiedono un token JWT:
-
-```
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-### Password Policy
-
-- Minimo 8 caratteri
-- Almeno una lettera maiuscola
-- Almeno una lettera minuscola
-- Almeno un numero
-- Almeno un carattere speciale (@$!%*?&)
-
-### Security Headers
-
-- Strict-Transport-Security (HSTS)
-- X-Content-Type-Options: nosniff
-- X-Frame-Options: DENY
-- X-XSS-Protection
-- Content-Security-Policy
-- Referrer-Policy
-- Permissions-Policy
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| pointsCost | int | Punti necessari |
+| rewardType | RewardType | CREDIT / PURCHASE_DISCOUNT / VOUCHER |
+| value | BigDecimal | Valore (€ o %) |
+| description | String | Descrizione |
+| active | boolean | Attivo |
 
 ---
 
-## Gestione Errori
+### Receipt
 
-### Formato Standard
-
-```json
-{
-  "status": 400,
-  "message": "Descrizione errore",
-  "timestamp": "2026-01-12T10:00:00"
-}
-```
-
-### Codici di Stato
-
-- **200 OK** - Richiesta riuscita
-- **201 Created** - Risorsa creata
-- **204 No Content** - Richiesta riuscita senza contenuto
-- **400 Bad Request** - Dati non validi
-- **401 Unauthorized** - Autenticazione richiesta/fallita
-- **403 Forbidden** - Accesso negato
-- **404 Not Found** - Risorsa non trovata
-- **409 Conflict** - Conflitto (es. email duplicata)
-- **429 Too Many Requests** - Rate limit superato
-- **500 Internal Server Error** - Errore interno
-
-### Errori di Validazione
-
-```json
-{
-  "status": 400,
-  "errors": {
-    "email": "L'email deve essere valida",
-    "password": "La password deve contenere almeno una maiuscola"
-  },
-  "timestamp": "2026-01-12T10:00:00"
-}
-```
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| documentType | DocumentType | FISCAL / NON_FISCAL |
+| items | List\<ReceiptItem\> | Righe |
+| loyaltyCustomerId | UUID | Cliente loyalty (nullable) |
+| receiptNo | Integer | Progressivo scontrino app |
+| rtReceiptNo | String | Numero scontrino RT (nullable) |
+| operatorCode | String | Codice cassiere (nullable) |
+| operatorName | String | Nome cassiere (nullable) |
+| paymentMethod | String | Metodo di pagamento |
+| invoiced | boolean | Fatturato |
+| invoiceId | UUID | ID fattura (nullable) |
+| total | BigDecimal | Totale calcolato |
+| createdAt | LocalDateTime | Data |
 
 ---
 
-## Note Importanti
+### ReceiptItem
 
-1. **Soft Delete**: La maggior parte delle eliminazioni sono soft delete (marcati come eliminati, non rimossi).
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| productId | UUID | Prodotto |
+| productName | String | Nome prodotto |
+| categoryId | UUID | Categoria (nullable) |
+| categoryLabel | String | Nome categoria (nullable) |
+| quantity | int | Quantita' |
+| unitPrice | BigDecimal | Prezzo unitario |
+| vat | int | IVA (%) |
+| discountPercent | Integer | Sconto % — calcolato dal backend (campagna o loyalty) |
+| discountEuro | BigDecimal | Sconto manuale cassiere (€, nullable) |
 
-2. **Multi-tenancy**: Tutti i dati sono isolati per userId + activityName.
-
-3. **UUID come Licenza**: L'UUID del client funge da chiave di licenza univoca.
-
-4. **Unique Constraint Loyalty**: Un cliente può avere UNA SOLA carta fedeltà per activity.
-
-5. **Gestione Punti/Credito/Sconto**: Questi campi possono essere modificati SOLO tramite endpoint dedicati.
-
-6. **Audit Logging**: Tutte le operazioni critiche vengono registrate in modo asincrono.
+> Totale riga: `unitPrice * quantity`, poi `-discountPercent%`, poi `-discountEuro`.
 
 ---
 
-**Versione API**: 1.0
-**Ultimo aggiornamento**: 12 Gennaio 2026
+### Statistic
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| date | LocalDate | Data |
+| statisticType | String | Tipo (es. `DAILY_REVENUE`) |
+| data | String | JSON con i dati |
+| createdAt | LocalDateTime | Creazione |
+| updatedAt | LocalDateTime | Ultimo aggiornamento |
