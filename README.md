@@ -107,11 +107,9 @@ Authorization: Bearer {accessToken}
 
 ---
 
-### POST `/auth/setup-2fa`
+### POST `/auth/setup-2fa` *(richiede Bearer token)*
 
-```json
-{ "email": "user@example.com" }
-```
+Nessun body. L'email viene letta dal JWT.
 
 **Response 200:**
 ```json
@@ -123,10 +121,17 @@ Authorization: Bearer {accessToken}
 
 ---
 
-### POST `/auth/confirm-2fa`
+### POST `/auth/confirm-2fa` *(richiede Bearer token)*
+
+userId e userType vengono letti dal JWT — non vanno nel body.
 
 ```json
-{ "userId": "uuid", "userType": "CLIENT", "secret": "BASE32SECRET", "code": "123456" }
+{ "secret": "BASE32SECRET", "code": "123456" }
+```
+
+**Response 200:**
+```json
+{ "message": "2FA enabled" }
 ```
 
 ---
@@ -148,6 +153,7 @@ Profilo completo dell'utente autenticato.
   "enabled": true,
   "publicCode": "ABC123",
   "twoFactorEnabled": false,
+  "modules": ["tavoli", "food_cost", "fidelity"],
   "activities": [
     {
       "id": "uuid",
@@ -173,6 +179,8 @@ Profilo completo dell'utente autenticato.
   ]
 }
 ```
+
+> `modules` contiene i moduli abilitati per la licenza. Se non configurati, il backend restituisce tutti: `["tavoli", "food_cost", "fidelity"]`.
 
 ---
 
@@ -346,6 +354,28 @@ Profilo completo dell'utente autenticato.
 
 ---
 
+### POST `/{productId}/extra-costs` - Aggiungi costo extra (food cost)
+
+```json
+{ "label": "Imballaggio", "cost": 0.30 }
+```
+
+**Response:** `201 Created`
+
+---
+
+### GET `/{productId}/extra-costs`
+
+### PUT `/{productId}/extra-costs/{id}`
+
+```json
+{ "label": "Imballaggio XL", "cost": 0.50 }
+```
+
+### DELETE `/{productId}/extra-costs/{id}` → `204 No Content`
+
+---
+
 ## 5. Varianti (`/license/{userId}/activities/{activityId}/variants`)
 
 ### POST - Crea variante
@@ -454,13 +484,40 @@ Errore `400` se quantita' insufficiente.
 
 ## 7. Fidelizzazione (`/license/{userId}/activities/{activityId}/loyalty`)
 
+### Categorie loyalty
+
+#### POST `/categories` - Crea categoria loyalty
+
+```json
+{ "name": "VIP" }
+```
+
+**Response:** `201 Created`
+
+---
+
+#### GET `/categories` - Lista categorie
+
+#### DELETE `/categories/{categoryId}` → `204 No Content`
+
+---
+
 ### Clienti
 
 #### POST `/customers` - Crea cliente
 
 ```json
-{ "name": "Anna", "surname": "Verdi", "email": "anna@example.com", "phone": "+39123456789" }
+{
+  "name": "Anna",
+  "surname": "Verdi",
+  "email": "anna@example.com",
+  "phone": "+39123456789",
+  "birthDate": "1990-05-15",
+  "gender": "F"
+}
 ```
+
+`birthDate` e `gender` opzionali.
 
 **Response:** `201 Created` — errore `400` se email o telefono gia' registrati.
 
@@ -491,7 +548,10 @@ Errore `400` se quantita' insufficiente.
   "email": "anna@example.com",
   "phone": "+39123456789",
   "active": true,
-  "activityIds": ["uuid1"]
+  "activityIds": ["uuid1"],
+  "categoryIds": ["cat-uuid1"],
+  "birthDate": "1990-05-15",
+  "gender": "F"
 }
 ```
 
@@ -618,9 +678,6 @@ Chiamare prima di battere lo scontrino. Il backend calcola automaticamente gli s
   "items": [
     {
       "productId": "uuid",
-      "productName": "Margherita",
-      "categoryId": "cat-uuid",
-      "categoryLabel": "Pizze",
       "quantity": 2,
       "unitPrice": 8.00,
       "vat": 10,
@@ -630,6 +687,8 @@ Chiamare prima di battere lo scontrino. Il backend calcola automaticamente gli s
   "loyaltyCustomerId": "uuid-or-null"
 }
 ```
+
+> `productName`, `categoryId`, `categoryLabel` sono opzionali: il backend li popola automaticamente dal prodotto.
 
 **Response 200:** array di ReceiptItem con sconti applicati:
 ```json
@@ -661,13 +720,11 @@ Il backend ricalcola gli sconti prima di salvare. Non e' necessario passare `dis
   "items": [
     {
       "productId": "uuid",
-      "productName": "Margherita",
-      "categoryId": "cat-uuid",
-      "categoryLabel": "Pizze",
       "quantity": 2,
       "unitPrice": 8.00,
       "vat": 10,
-      "discountEuro": null
+      "discountEuro": null,
+      "customName": "Nome temporaneo visualizzato"
     }
   ],
   "loyaltyCustomerId": "uuid-or-null",
@@ -678,6 +735,8 @@ Il backend ricalcola gli sconti prima di salvare. Non e' necessario passare `dis
   "paymentMethod": "CONTANTI"
 }
 ```
+
+> `customName` e' opzionale: se valorizzato, viene mostrato al posto di `productName` nelle analitiche e nelle ricevute. Utile per note personalizzate (es. "Pizza senza glutine").
 
 | paymentMethod | |
 |---|---|
@@ -728,6 +787,327 @@ Filtri opzionali:
 
 ---
 
+## 10. Analytics (`/license/{userId}/activities/{activityId}/analytics`)
+
+Calcolate in tempo reale dagli scontrini. Tutti gli endpoint accettano `?startDate=2026-01-01&endDate=2026-01-31`.
+
+### GET `/overview`
+
+```json
+{
+  "totalRevenue": 5200.00,
+  "totalTransactions": 143,
+  "averageTicket": 36.36,
+  "totalItemsSold": 410
+}
+```
+
+### GET `/by-category`
+
+```json
+[
+  { "categoryId": "uuid", "categoryLabel": "Pizze", "revenue": 2100.00, "quantity": 180 }
+]
+```
+
+### GET `/by-product`
+
+```json
+[
+  { "productId": "uuid", "productName": "Margherita", "revenue": 960.00, "quantity": 120 }
+]
+```
+
+### GET `/by-hour`
+
+```json
+[
+  { "hour": 12, "revenue": 820.00, "transactions": 22 },
+  { "hour": 13, "revenue": 1100.00, "transactions": 30 }
+]
+```
+
+### GET `/daily`
+
+```json
+[
+  { "date": "2026-01-15", "revenue": 380.00, "transactions": 11 }
+]
+```
+
+---
+
+## 11. Food Cost (`/license/{userId}/activities/{activityId}/food-cost`)
+
+### GET `/products`
+
+Lista di tutti i prodotti con costo teorico calcolato da ingredienti + costi extra.
+
+### GET `/products/{productId}`
+
+Dettaglio food cost per singolo prodotto:
+```json
+{
+  "productId": "uuid",
+  "productName": "Margherita",
+  "basePrice": 8.00,
+  "ingredientCost": 1.20,
+  "extraCost": 0.30,
+  "totalCost": 1.50,
+  "margin": 6.50,
+  "marginPercent": 81.25
+}
+```
+
+### GET `/report?startDate=2026-01-01&endDate=2026-01-31`
+
+Report food cost aggregato per il periodo: costo teorico totale basato sulle quantita' vendute.
+
+---
+
+## 12. Tavoli e Sessioni (`/license/{userId}/activities/{activityId}/table-sessions`)
+
+Sistema di codici sessione per gli ordini da tavolo. Il cliente scansiona il menu e inserisce il codice per associare l'ordine al tavolo corretto.
+
+### POST - Apri sessione
+
+```json
+{ "tableNumber": 5 }
+```
+
+**Response `201 Created`:**
+```json
+{
+  "id": "uuid",
+  "tableNumber": 5,
+  "code": "HK3T7R",
+  "status": "ACTIVE",
+  "createdAt": "2026-03-02T20:00:00"
+}
+```
+
+> Il codice e' di 6 caratteri alfanumerici (senza O, 0, I, 1 per evitare ambiguita').
+
+---
+
+### GET - Sessioni attive
+
+Lista di tutte le sessioni con `status: ACTIVE`.
+
+---
+
+### DELETE `/{sessionId}` - Chiudi sessione → `204 No Content`
+
+---
+
+### POST `/public/menu/{publicCode}/validate-session` *(pubblico, nessun auth)*
+
+Validazione lato cliente (menuconnesso) prima di inviare un ordine.
+
+```json
+{ "code": "HK3T7R" }
+```
+
+**Response 200:**
+```json
+{ "sessionId": "uuid", "tableNumber": 5 }
+```
+
+Errore `404` se il codice non esiste o la sessione e' chiusa.
+
+---
+
+## 13. GDPR (`/license/{userId}/activities/{activityId}/gdpr`)
+
+### GET `/customers/{customerId}` - Esporta dati (Art. 15)
+
+Restituisce tutti i dati personali del cliente in formato JSON (diritto di accesso e portabilita').
+
+**Response 200:**
+```json
+{
+  "customerId": "uuid",
+  "firstName": "Anna",
+  "lastName": "Verdi",
+  "email": "anna@example.com",
+  "phone": "+39123456789",
+  "birthDate": "1990-05-15",
+  "gender": "F",
+  "points": 120,
+  "credit": 15.00,
+  "discount": 0,
+  "active": true,
+  "createdAt": "2025-01-10T10:00:00",
+  "exportedAt": "2026-03-02T14:30:00"
+}
+```
+
+---
+
+### DELETE `/customers/{customerId}` - Cancella dati (Art. 17)
+
+Anonimizza il cliente: nome → "Anonimo", cognome → "GDPR", email/telefono/dati anagrafici → null. I dati contabili (scontrini) vengono conservati.
+
+**Response 200:**
+```json
+{
+  "customerId": "uuid",
+  "anonymized": true,
+  "erasedAt": "2026-03-02T14:30:00",
+  "message": "Dati personali cancellati con successo"
+}
+```
+
+Errore `409` se i dati sono gia' stati cancellati.
+
+---
+
+## 14. Admin (`/admin`) *(solo ruolo ADMIN)*
+
+### Clienti
+
+#### GET `/admin/clients` - Lista tutti i clienti
+
+#### GET `/admin/clients/{clientId}` - Singolo cliente
+
+#### POST `/admin/clients` - Crea cliente
+
+```json
+{
+  "name": "Mario",
+  "surname": "Rossi",
+  "email": "mario@example.com",
+  "password": "Password123!",
+  "licenseExpireAt": "2027-12-31"
+}
+```
+
+#### PUT `/admin/clients/{clientId}` - Aggiorna cliente
+
+```json
+{
+  "name": "Mario",
+  "surname": "Rossi",
+  "email": "mario@example.com",
+  "licenseExpireAt": "2027-12-31",
+  "enabled": true,
+  "modules": ["tavoli", "food_cost", "fidelity"]
+}
+```
+
+#### POST `/admin/clients/{clientId}/disable` → ClientUser
+
+#### POST `/admin/clients/{clientId}/enable` → ClientUser
+
+#### POST `/admin/clients/{clientId}/disable-2fa` → ClientUser
+
+#### DELETE `/admin/clients/{clientId}` → `204 No Content`
+
+#### PUT `/admin/clients/{clientId}/modules`
+
+```json
+{ "modules": ["tavoli", "fidelity"] }
+```
+
+---
+
+### Moduli disponibili
+
+#### GET `/admin/clients/modules`
+
+Lista statica di tutti i moduli esistenti nel sistema.
+
+**Response 200:**
+```json
+[
+  { "id": "tavoli",    "label": "Tavoli",    "description": "Gestione tavoli, sessioni codice e ordini da menu" },
+  { "id": "food_cost", "label": "Food Cost", "description": "Calcolo food cost teorico da ingredienti e costi extra" },
+  { "id": "fidelity",  "label": "Fidelity",  "description": "Programma fedelta': punti, credito, campagne sconto" }
+]
+```
+
+---
+
+### Audit Log
+
+#### GET `/admin/audit-logs`
+
+Cronologia di tutte le azioni significative nel sistema. Ordinati per data decrescente.
+
+**Query params (tutti opzionali):**
+| Param | Tipo | Descrizione |
+|---|---|---|
+| `from` | Date (`2026-01-01`) | Data inizio (default: 30 giorni fa) |
+| `to` | Date (`2026-03-02`) | Data fine (default: oggi) |
+| `userId` | UUID | Filtra per utente specifico |
+| `action` | String | Filtra per azione (es. `LOGIN`, `CLIENT_CREATE`) |
+| `status` | String | `SUCCESS` oppure `FAILURE` |
+
+**Response 200:**
+```json
+[
+  {
+    "id": "uuid",
+    "userId": "uuid",
+    "userRole": "CLIENT",
+    "action": "LOGIN",
+    "resourceType": "AUTH",
+    "resourceId": "",
+    "ipAddress": "93.12.34.56",
+    "details": "",
+    "status": "SUCCESS",
+    "createdAt": "2026-03-02T20:15:30"
+  }
+]
+```
+
+**Azioni loggiate:**
+
+| Azione | Chi | Quando |
+|---|---|---|
+| `LOGIN` | CLIENT / ADMIN | Login riuscito o fallito |
+| `2FA_VERIFY` | CLIENT / ADMIN | Verifica codice TOTP |
+| `2FA_ENABLE` | CLIENT / ADMIN | Attivazione 2FA |
+| `CLIENT_CREATE` | ADMIN | Creazione cliente |
+| `CLIENT_UPDATE` | ADMIN | Modifica cliente |
+| `CLIENT_DELETE` | ADMIN | Eliminazione cliente |
+| `CLIENT_DISABLE` | ADMIN | Disabilitazione account |
+| `CLIENT_ENABLE` | ADMIN | Riabilitazione account |
+| `CLIENT_DISABLE_2FA` | ADMIN | Reset 2FA cliente |
+| `CLIENT_UPDATE_MODULES` | ADMIN | Modifica moduli cliente |
+
+---
+
+## Menu Pubblico (`/public/menu/{publicCode}`) *(nessun auth)*
+
+Endpoint pubblici usati da menuconnesso.
+
+### GET `/public/menu/{publicCode}`
+
+Restituisce il menu pubblico dell'attivita' (prodotti e categorie visibili).
+
+### POST `/public/menu/{publicCode}/orders`
+
+Invia un ordine dal menu digitale.
+
+```json
+{
+  "tableNumber": 5,
+  "sessionCode": "HK3T7R",
+  "items": [
+    { "productId": "uuid", "quantity": 2, "notes": "senza cipolla" }
+  ]
+}
+```
+
+> `sessionCode` e' opzionale. Se presente, viene validato e il `tableNumber` viene ricavato dalla sessione (ignorando quello nel body).
+
+### POST `/public/menu/{publicCode}/validate-session`
+
+Vedi sezione 12.
+
+---
+
 ## Modelli Dati
 
 ### ClientUser
@@ -742,6 +1122,7 @@ Filtri opzionali:
 | enabled | boolean | Account attivo |
 | publicCode | String | Codice pubblico licenza |
 | twoFactorEnabled | boolean | 2FA attivo |
+| modules | List\<String\> | Moduli abilitati |
 
 ---
 
@@ -850,10 +1231,14 @@ Filtri opzionali:
 | activityIds | List\<UUID\> | Attivita' associate |
 | name, surname | String | Anagrafica |
 | email, phone | String | Contatti (nullable) |
+| birthDate | LocalDate | Data di nascita (nullable) |
+| gender | String | Sesso (nullable) |
+| categoryIds | List\<UUID\> | Categorie loyalty assegnate |
 | points | int | Punti accumulati |
 | credit | BigDecimal | Credito (€) |
 | discount | int | Sconto personale (%) |
 | active | boolean | Attivo |
+| gdprErasedAt | LocalDateTime | Data anonimizzazione GDPR (null = non anonimizzato) |
 | createdAt | LocalDateTime | Data creazione |
 | lastTransactionAt | LocalDateTime | Ultima transazione |
 
@@ -918,12 +1303,14 @@ Filtri opzionali:
 | productName | String | Nome prodotto |
 | categoryId | UUID | Categoria (nullable) |
 | categoryLabel | String | Nome categoria (nullable) |
+| customName | String | Nome personalizzato temporaneo (nullable) |
 | quantity | int | Quantita' |
 | unitPrice | BigDecimal | Prezzo unitario |
 | vat | int | IVA (%) |
 | discountPercent | Integer | Sconto % — calcolato dal backend (campagna o loyalty) |
 | discountEuro | BigDecimal | Sconto manuale cassiere (€, nullable) |
 
+> `displayName()`: se `customName` e' valorizzato viene usato al posto di `productName` nelle visualizzazioni.
 > Totale riga: `unitPrice * quantity`, poi `-discountPercent%`, poi `-discountEuro`.
 
 ---
@@ -939,3 +1326,34 @@ Filtri opzionali:
 | data | String | JSON con i dati |
 | createdAt | LocalDateTime | Creazione |
 | updatedAt | LocalDateTime | Ultimo aggiornamento |
+
+---
+
+### AuditLog
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| userId | UUID | Utente che ha eseguito l'azione |
+| userRole | String | `ADMIN` o `CLIENT` |
+| action | String | Azione eseguita (es. `LOGIN`) |
+| resourceType | String | Tipo risorsa coinvolta (es. `AUTH`, `CLIENT`) |
+| resourceId | String | ID risorsa (nullable) |
+| ipAddress | String | IP del client (nullable) |
+| details | String | Dettagli aggiuntivi (nullable) |
+| status | AuditStatus | `SUCCESS` o `FAILURE` |
+| createdAt | LocalDateTime | Timestamp |
+
+---
+
+### TableSession
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| tableNumber | int | Numero tavolo |
+| code | String | Codice 6 caratteri (es. `HK3T7R`) |
+| status | SessionStatus | `ACTIVE` o `CLOSED` |
+| createdAt | LocalDateTime | Apertura sessione |
+| closedAt | LocalDateTime | Chiusura sessione (nullable) |
