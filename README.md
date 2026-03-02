@@ -1,6 +1,6 @@
 # CassaBackend - API Reference
 
-Base URL: `https://backend.cassaconnessa.com/api/v1`
+Base URL: `https://backend.cassaconnessa.it/api/v1`
 
 ---
 
@@ -138,6 +138,17 @@ userId e userType vengono letti dal JWT — non vanno nel body.
 
 ## 2. Profilo e Attivita' (`/license`)
 
+### GET `/license/verify?publicCode=ABC123` *(nessun auth)*
+
+Verifica la validita' di un codice pubblico licenza.
+
+**Response 200:**
+```json
+{ "valid": true, "clientId": "uuid", "expiresAt": "2027-12-31" }
+```
+
+---
+
 ### GET `/license/profile`
 
 Profilo completo dell'utente autenticato.
@@ -151,12 +162,12 @@ Profilo completo dell'utente autenticato.
   "email": "mario@example.com",
   "licenseExpireAt": "2027-12-31",
   "enabled": true,
-  "publicCode": "ABC123",
   "twoFactorEnabled": false,
   "modules": ["tavoli", "food_cost", "fidelity"],
   "activities": [
     {
       "id": "uuid",
+      "publicCode": "ABC123",
       "name": "Pizzeria Mario",
       "vatID": "IT12345678901",
       "type": "SOLE_PROPRIETORSHIP",
@@ -357,7 +368,7 @@ Profilo completo dell'utente autenticato.
 ### POST `/{productId}/extra-costs` - Aggiungi costo extra (food cost)
 
 ```json
-{ "label": "Imballaggio", "cost": 0.30 }
+{ "name": "Imballaggio", "costPerUnit": 0.30 }
 ```
 
 **Response:** `201 Created`
@@ -369,7 +380,7 @@ Profilo completo dell'utente autenticato.
 ### PUT `/{productId}/extra-costs/{id}`
 
 ```json
-{ "label": "Imballaggio XL", "cost": 0.50 }
+{ "name": "Imballaggio XL", "costPerUnit": 0.50 }
 ```
 
 ### DELETE `/{productId}/extra-costs/{id}` → `204 No Content`
@@ -489,8 +500,10 @@ Errore `400` se quantita' insufficiente.
 #### POST `/categories` - Crea categoria loyalty
 
 ```json
-{ "name": "VIP" }
+{ "name": "VIP", "color": "#FFD700" }
 ```
+
+`color` opzionale.
 
 **Response:** `201 Created`
 
@@ -872,17 +885,21 @@ Sistema di codici sessione per gli ordini da tavolo. Il cliente scansiona il men
 ### POST - Apri sessione
 
 ```json
-{ "tableNumber": 5 }
+{ "tableNumber": "5" }
 ```
+
+> `tableNumber` e' una stringa.
 
 **Response `201 Created`:**
 ```json
 {
   "id": "uuid",
-  "tableNumber": 5,
+  "activityId": "uuid",
+  "tableNumber": "5",
   "code": "HK3T7R",
   "status": "ACTIVE",
-  "createdAt": "2026-03-02T20:00:00"
+  "createdAt": "2026-03-02T20:00:00",
+  "closedAt": null
 }
 ```
 
@@ -896,7 +913,23 @@ Lista di tutte le sessioni con `status: ACTIVE`.
 
 ---
 
-### DELETE `/{sessionId}` - Chiudi sessione → `204 No Content`
+### DELETE `/{sessionId}` - Chiudi sessione
+
+**Response 200:** oggetto sessione con `status: CLOSED` e `closedAt` valorizzato.
+
+---
+
+### GET `/waiter-calls` - Tavoli che hanno chiamato il cameriere
+
+**Response 200:** `Set<String>` — insieme dei numeri tavolo con chiamata attiva.
+
+```json
+["3", "7", "12"]
+```
+
+---
+
+### DELETE `/waiter-calls/{tableNumber}` - Rimuovi chiamata cameriere → `204 No Content`
 
 ---
 
@@ -910,7 +943,7 @@ Validazione lato cliente (menuconnesso) prima di inviare un ordine.
 
 **Response 200:**
 ```json
-{ "sessionId": "uuid", "tableNumber": 5 }
+{ "sessionId": "uuid", "tableNumber": "5" }
 ```
 
 Errore `404` se il codice non esiste o la sessione e' chiusa.
@@ -926,6 +959,7 @@ Restituisce tutti i dati personali del cliente in formato JSON (diritto di acces
 **Response 200:**
 ```json
 {
+  "exportedAt": "2026-03-02T14:30:00",
   "customerId": "uuid",
   "firstName": "Anna",
   "lastName": "Verdi",
@@ -935,10 +969,11 @@ Restituisce tutti i dati personali del cliente in formato JSON (diritto di acces
   "gender": "F",
   "points": 120,
   "credit": 15.00,
-  "discount": 0,
-  "active": true,
-  "createdAt": "2025-01-10T10:00:00",
-  "exportedAt": "2026-03-02T14:30:00"
+  "discountPercent": 0,
+  "memberSince": "2025-01-10T10:00:00",
+  "lastTransaction": "2026-02-20T18:45:00",
+  "anonymized": false,
+  "anonymizedAt": null
 }
 ```
 
@@ -952,7 +987,6 @@ Anonimizza il cliente: nome → "Anonimo", cognome → "GDPR", email/telefono/da
 ```json
 {
   "customerId": "uuid",
-  "anonymized": true,
   "erasedAt": "2026-03-02T14:30:00",
   "message": "Dati personali cancellati con successo"
 }
@@ -1078,6 +1112,119 @@ Cronologia di tutte le azioni significative nel sistema. Ordinati per data decre
 
 ---
 
+## 15. Menu Digitale (`/license/{userId}/activities/{activityId}/menu`)
+
+### Categorie menu
+
+#### GET `/categories` → `List<MenuCategory>`
+
+#### POST `/categories` - Crea categoria menu
+
+```json
+{
+  "name": "Antipasti",
+  "description": "...",
+  "color": "#FF0000",
+  "icon": "utensils",
+  "imageUrl": "https://...",
+  "sortOrder": 1
+}
+```
+
+Tutti i campi opzionali tranne `name`.
+
+**Response 201:** oggetto `MenuCategory` con `id, name, description, color, icon, imageUrl, sortOrder, active`
+
+---
+
+#### PUT `/categories/{categoryId}`
+
+```json
+{
+  "name": "Antipasti",
+  "description": "...",
+  "color": "#FF0000",
+  "icon": "utensils",
+  "imageUrl": "https://...",
+  "sortOrder": 1,
+  "active": true
+}
+```
+
+---
+
+#### DELETE `/categories/{categoryId}` → `204 No Content`
+
+---
+
+### Voci menu
+
+#### GET `/items[?categoryId={uuid}]` → `List<MenuItem>`
+
+#### POST `/items` - Crea voce menu
+
+```json
+{
+  "menuCategoryId": "uuid",
+  "name": "Bruschetta",
+  "price": 5.50,
+  "description": "...",
+  "imageUrl": "https://...",
+  "allergens": ["glutine", "pomodoro"],
+  "vegetarian": true,
+  "vegan": false,
+  "glutenFree": false,
+  "spicy": false,
+  "displayOrder": 1
+}
+```
+
+**Response 201:** oggetto `MenuItem` con `id, menuCategoryId, name, description, price, imageUrl, allergens, vegetarian, vegan, glutenFree, spicy, available, displayOrder`
+
+---
+
+#### PUT `/items/{itemId}`
+
+Stessi campi di POST piu' `"available": true/false`.
+
+---
+
+#### DELETE `/items/{itemId}` → `204 No Content`
+
+---
+
+### Import da POS
+
+#### POST `/import-from-pos`
+
+Crea una categoria menu e importa prodotti POS selezionati come voci menu. Se `productIds` e' vuoto, importa tutti i prodotti attivi dell'attivita'.
+
+```json
+{ "menuCategoryName": "Pizze", "productIds": ["uuid1", "uuid2"] }
+```
+
+**Response 201:** `List<MenuItem>` importati
+
+---
+
+## 16. Ordini da Menu (`/license/{userId}/activities/{activityId}/menu-orders`)
+
+### GET `/[?status=PENDING]` → `List<MenuOrder>`
+
+Valori status: `PENDING`, `PREPARING`, `READY`, `DELIVERED`, `CANCELLED`
+
+---
+
+### PUT `/{orderId}/status`
+
+```json
+{ "status": "PREPARING" }
+```
+
+**Response 200:** oggetto `MenuOrder` aggiornato
+
+---
+
 ## Menu Pubblico (`/public/menu/{publicCode}`) *(nessun auth)*
 
 Endpoint pubblici usati da menuconnesso.
@@ -1092,7 +1239,7 @@ Invia un ordine dal menu digitale.
 
 ```json
 {
-  "tableNumber": 5,
+  "tableNumber": "5",
   "sessionCode": "HK3T7R",
   "items": [
     { "productId": "uuid", "quantity": 2, "notes": "senza cipolla" }
@@ -1108,6 +1255,22 @@ Vedi sezione 12.
 
 ---
 
+### POST `/public/menu/{publicCode}/call-waiter?table=5` *(pubblico)*
+
+Segnala la richiesta di un cameriere per il tavolo indicato. La chiamata viene accodata lato backend.
+
+**Response:** `200 OK`
+
+---
+
+### DELETE `/public/menu/{publicCode}/call-waiter?table=5` *(pubblico)*
+
+Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere ha risposto).
+
+**Response:** `200 OK`
+
+---
+
 ## Modelli Dati
 
 ### ClientUser
@@ -1120,7 +1283,6 @@ Vedi sezione 12.
 | email | String | Email |
 | licenseExpireAt | LocalDate | Scadenza licenza |
 | enabled | boolean | Account attivo |
-| publicCode | String | Codice pubblico licenza |
 | twoFactorEnabled | boolean | 2FA attivo |
 | modules | List\<String\> | Moduli abilitati |
 
@@ -1131,6 +1293,7 @@ Vedi sezione 12.
 | Campo | Tipo | Descrizione |
 |---|---|---|
 | id | UUID | ID |
+| publicCode | String | Codice pubblico usato nell'URL del menu digitale |
 | name | String | Nome attivita' |
 | vatID | String | Partita IVA |
 | type | ActivityType | Tipo societa' |
@@ -1346,13 +1509,99 @@ Vedi sezione 12.
 
 ---
 
+### MenuCategory
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| name | String | Nome |
+| description | String | Descrizione (nullable) |
+| color | String | Colore hex (nullable) |
+| icon | String | Icona (nullable) |
+| imageUrl | String | URL immagine (nullable) |
+| sortOrder | int | Ordinamento |
+| active | boolean | Attiva |
+
+---
+
+### MenuItem
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| menuCategoryId | UUID | Categoria menu |
+| name | String | Nome |
+| description | String | Descrizione (nullable) |
+| price | BigDecimal | Prezzo |
+| imageUrl | String | URL immagine (nullable) |
+| allergens | List\<String\> | Allergeni |
+| vegetarian | boolean | Vegetariano |
+| vegan | boolean | Vegano |
+| glutenFree | boolean | Senza glutine |
+| spicy | boolean | Piccante |
+| available | boolean | Disponibile |
+| displayOrder | int | Ordinamento |
+
+---
+
+### MenuOrder
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| tableNumber | String | Numero tavolo |
+| generalNotes | String | Note generali (nullable) |
+| status | MenuOrderStatus | Stato ordine |
+| items | List\<MenuOrderItem\> | Righe ordine |
+| createdAt | LocalDateTime | Creazione |
+| updatedAt | LocalDateTime | Ultimo aggiornamento (nullable) |
+
+**MenuOrderStatus:** `PENDING`, `PREPARING`, `READY`, `DELIVERED`, `CANCELLED`
+
+**Esempio MenuOrder:**
+```json
+{
+  "id": "uuid",
+  "activityId": "uuid",
+  "tableNumber": "5",
+  "generalNotes": "senza cipolla",
+  "status": "PENDING",
+  "items": [
+    {
+      "menuItemId": "uuid",
+      "name": "Bruschetta",
+      "quantity": 2,
+      "unitPrice": 5.50,
+      "notes": "extra olio"
+    }
+  ],
+  "createdAt": "2026-03-02T20:15:00",
+  "updatedAt": null
+}
+```
+
+---
+
+### MenuOrderItem
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| menuItemId | UUID | Voce menu |
+| name | String | Nome al momento dell'ordine |
+| quantity | int | Quantita' |
+| unitPrice | BigDecimal | Prezzo unitario |
+| notes | String | Note (nullable) |
+
+---
+
 ### TableSession
 
 | Campo | Tipo | Descrizione |
 |---|---|---|
 | id | UUID | ID |
 | activityId | UUID | Attivita' |
-| tableNumber | int | Numero tavolo |
+| tableNumber | String | Numero tavolo (stringa) |
 | code | String | Codice 6 caratteri (es. `HK3T7R`) |
 | status | SessionStatus | `ACTIVE` o `CLOSED` |
 | createdAt | LocalDateTime | Apertura sessione |
