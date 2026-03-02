@@ -1,6 +1,6 @@
 # CassaBackend - API Reference
 
-Base URL: `https://backend.cassaconnessa.it/api/v1`
+Base URL: `https://backend.cassaconnessa.com/api/v1`
 
 ---
 
