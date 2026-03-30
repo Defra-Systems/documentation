@@ -1219,125 +1219,7 @@ Errore `409` se i dati sono gia' stati cancellati.
 
 ---
 
-## 16. Admin (`/admin`) *(solo ruolo ADMIN)*
-
-### Clienti
-
-#### GET `/admin/clients` - Lista tutti i clienti
-
-#### GET `/admin/clients/{clientId}` - Singolo cliente
-
-#### POST `/admin/clients` - Crea cliente
-
-```json
-{
-  "name": "Mario",
-  "surname": "Rossi",
-  "email": "mario@example.com",
-  "password": "Password123!",
-  "licenseExpireAt": "2027-12-31"
-}
-```
-
-**Response:** `201 Created`
-
-#### PUT `/admin/clients/{clientId}` - Aggiorna cliente
-
-```json
-{
-  "name": "Mario",
-  "surname": "Rossi",
-  "email": "mario@example.com",
-  "licenseExpireAt": "2027-12-31",
-  "enabled": true,
-  "modules": ["tavoli", "food_cost", "fidelity"]
-}
-```
-
-#### POST `/admin/clients/{clientId}/disable` → ClientUser
-
-#### POST `/admin/clients/{clientId}/enable` → ClientUser
-
-#### POST `/admin/clients/{clientId}/disable-2fa` → ClientUser
-
-#### DELETE `/admin/clients/{clientId}` → `204 No Content`
-
-#### PUT `/admin/clients/{clientId}/modules`
-
-```json
-{ "modules": ["tavoli", "fidelity"] }
-```
-
----
-
-### Moduli disponibili
-
-#### GET `/admin/clients/modules`
-
-Lista statica di tutti i moduli esistenti nel sistema.
-
-**Response 200:**
-```json
-[
-  { "id": "tavoli",    "label": "Tavoli",    "description": "Gestione tavoli, sessioni codice e ordini da menu" },
-  { "id": "food_cost", "label": "Food Cost", "description": "Calcolo food cost teorico da ingredienti e costi extra" },
-  { "id": "fidelity",  "label": "Fidelity",  "description": "Programma fedelta': punti, credito, campagne sconto" }
-]
-```
-
----
-
-### Audit Log
-
-#### GET `/admin/audit-logs`
-
-Cronologia di tutte le azioni significative nel sistema. Ordinati per data decrescente.
-
-**Query params (tutti opzionali):**
-| Param | Tipo | Descrizione |
-|---|---|---|
-| `from` | Date (`2026-01-01`) | Data inizio (default: 30 giorni fa) |
-| `to` | Date (`2026-03-02`) | Data fine (default: oggi) |
-| `userId` | UUID | Filtra per utente specifico |
-| `action` | String | Filtra per azione (es. `LOGIN`, `CLIENT_CREATE`) |
-| `status` | String | `SUCCESS` oppure `FAILURE` |
-
-**Response 200:**
-```json
-[
-  {
-    "id": "uuid",
-    "userId": "uuid",
-    "userRole": "CLIENT",
-    "action": "LOGIN",
-    "resourceType": "AUTH",
-    "resourceId": "",
-    "ipAddress": "93.12.34.56",
-    "details": "",
-    "status": "SUCCESS",
-    "createdAt": "2026-03-02T20:15:30"
-  }
-]
-```
-
-**Azioni loggiate:**
-
-| Azione | Chi | Quando |
-|---|---|---|
-| `LOGIN` | CLIENT / ADMIN | Login riuscito o fallito |
-| `2FA_VERIFY` | CLIENT / ADMIN | Verifica codice TOTP |
-| `2FA_ENABLE` | CLIENT / ADMIN | Attivazione 2FA |
-| `CLIENT_CREATE` | ADMIN | Creazione cliente |
-| `CLIENT_UPDATE` | ADMIN | Modifica cliente |
-| `CLIENT_DELETE` | ADMIN | Eliminazione cliente |
-| `CLIENT_DISABLE` | ADMIN | Disabilitazione account |
-| `CLIENT_ENABLE` | ADMIN | Riabilitazione account |
-| `CLIENT_DISABLE_2FA` | ADMIN | Reset 2FA cliente |
-| `CLIENT_UPDATE_MODULES` | ADMIN | Modifica moduli cliente |
-
----
-
-## 17. Menu Digitale (`/license/{userId}/activities/{activityId}/menu`)
+## 16. Menu Digitale (`/license/{userId}/activities/{activityId}/menu`)
 
 ### Categorie menu
 
@@ -1432,7 +1314,7 @@ Crea una categoria menu e importa prodotti POS selezionati come voci menu. Se `p
 
 ---
 
-## 18. Ordini da Menu (`/license/{userId}/activities/{activityId}/menu-orders`)
+## 17. Ordini da Menu (`/license/{userId}/activities/{activityId}/menu-orders`)
 
 ### GET `/[?status=PENDING]` → `List<MenuOrder>`
 
@@ -1452,7 +1334,7 @@ Emette evento SSE `ORDER_STATUS_CHANGED` ai client connessi.
 
 ---
 
-## 19. Menu Pubblico (`/public/menu/{publicCode}`) *(nessun auth)*
+## 18. Menu Pubblico (`/public/menu/{publicCode}`) *(nessun auth)*
 
 Endpoint pubblici usati da menuconnesso.
 
@@ -1551,7 +1433,7 @@ Rimuove la chiamata cameriere per il tavolo indicato.
 
 ---
 
-## 20. SSE - Eventi in tempo reale (`/license/{userId}/activities/{activityId}/events`)
+## 19. SSE - Eventi in tempo reale (`/license/{userId}/activities/{activityId}/events`)
 
 ### GET `/events` *(richiede Bearer token)*
 
