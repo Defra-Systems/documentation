@@ -58,6 +58,12 @@ Authorization: Bearer {accessToken}
 
 ---
 
+### POST `/auth/login/admin`
+
+Stesso body e stessa struttura di risposta di `/auth/login/client`, con `userType: "ADMIN"`.
+
+---
+
 ### POST `/auth/verify-2fa`
 
 ```json
@@ -87,6 +93,8 @@ Authorization: Bearer {accessToken}
 { "refreshToken": "uuid" }
 ```
 
+Revoca **tutti** i token dell'utente.
+
 **Response:** `204 No Content`
 
 ---
@@ -97,6 +105,8 @@ Authorization: Bearer {accessToken}
 { "email": "user@example.com", "userType": "CLIENT" }
 ```
 
+**Response 200:** `{ "message": "..." }`
+
 ---
 
 ### POST `/auth/password-reset/reset`
@@ -104,6 +114,8 @@ Authorization: Bearer {accessToken}
 ```json
 { "token": "reset-token-uuid", "newPassword": "newPassword123" }
 ```
+
+**Response 200:** `{ "message": "..." }`
 
 ---
 
@@ -195,6 +207,22 @@ Profilo completo dell'utente autenticato.
 
 ---
 
+### GET `/license/{userId}/activities`
+
+Lista delle attivita' associate all'utente.
+
+**Response 200:** array di Activity (stesso formato di `activities` nel profilo).
+
+---
+
+### GET `/license/{userId}/activities/{activityId}`
+
+Singola attivita'.
+
+**Response 200:** oggetto Activity.
+
+---
+
 ### PUT `/license/{userId}/activities/{activityId}`
 
 ```json
@@ -211,6 +239,8 @@ Profilo completo dell'utente autenticato.
 }
 ```
 
+**Response 200:** oggetto Activity aggiornato.
+
 ---
 
 ### GET `/license/{userId}/activities/{activityId}/loyalty-config`
@@ -219,6 +249,8 @@ Profilo completo dell'utente autenticato.
 ```json
 { "spendThreshold": 5.00, "spendAmount": 10.00, "pointsAwarded": 1, "enabled": true }
 ```
+
+> Se non ancora configurato restituisce `{ "enabled": false }`.
 
 ---
 
@@ -275,6 +307,9 @@ Profilo completo dell'utente autenticato.
   "visibleRetail": true,
   "visibleRestaurant": true,
   "visibleTakeaway": false,
+  "visibleKiosk": false,
+  "visibleHandheld": false,
+  "showImage": true,
   "hidden": false,
   "active": true,
   "fiscal": true
@@ -300,11 +335,28 @@ Profilo completo dell'utente autenticato.
   "description": "Pizza classica",
   "barcode": "1234567890",
   "imageUrl": "https://...",
+  "imageBase64": "data:image/png;base64,...",
+  "imageContentType": "image/png",
   "color": "#FFA500",
   "basePrice": 8.00,
-  "iva": 10
+  "iva": 10,
+  "weighted": false,
+  "showImage": true,
+  "manageIngredients": false,
+  "allergens": "glutine, lattosio",
+  "visibleKiosk": true,
+  "visibleHandheld": true
 }
 ```
+
+**Gestione immagini — due modalita' indipendenti e non esclusive:**
+
+| Campo | Comportamento |
+|---|---|
+| `imageUrl` | URL esterno (CDN, S3, ecc.). Il server lo salva e lo restituisce cos' com'e' nel Product, senza alcuna elaborazione. |
+| `imageBase64` + `imageContentType` | Il server decodifica e salva il file su disco. Imposta `hasImage: true` nel Product. Il server **non genera nessun URL**: per recuperare l'immagine bisogna chiamare `GET /{productId}/image`. |
+
+I due campi possono coesistere sullo stesso prodotto. `imageContentType` default: `image/jpeg` se omesso.
 
 **Response:** `201 Created`
 
@@ -320,6 +372,14 @@ Profilo completo dell'utente autenticato.
 
 ---
 
+### GET `/{productId}/image` - Immagine prodotto
+
+Restituisce i byte dell'immagine con l'header `Content-Type` appropriato (es. `image/png`).
+
+**Response 200:** `byte[]` — `404` se nessuna immagine caricata.
+
+---
+
 ### PUT `/{productId}` - Aggiorna prodotto
 
 ```json
@@ -328,6 +388,8 @@ Profilo completo dell'utente autenticato.
   "description": "Pizza classica grande",
   "barcode": "1234567890",
   "imageUrl": "https://...",
+  "imageBase64": null,
+  "imageContentType": null,
   "color": "#FFA500",
   "basePrice": 10.00,
   "priceList2": 12.00,
@@ -337,7 +399,13 @@ Profilo completo dell'utente autenticato.
   "sortOrder": 1,
   "vatNature": null,
   "active": true,
-  "fiscal": true
+  "fiscal": true,
+  "weighted": false,
+  "showImage": true,
+  "manageIngredients": false,
+  "allergens": "glutine",
+  "visibleKiosk": true,
+  "visibleHandheld": true
 }
 ```
 
@@ -349,7 +417,49 @@ Profilo completo dell'utente autenticato.
 
 ---
 
-### POST `/{productId}/ingredients` - Aggiungi ingrediente (magazzino)
+### Barcode multipli
+
+#### GET `/{productId}/barcodes`
+
+Lista di tutti i barcode associati al prodotto.
+
+**Response 200:** `List<ProductBarcode>` — ogni elemento ha `barcode (String)` e `quantity (BigDecimal)` (quantita' per unita', utile per prodotti sfusi).
+
+#### POST `/{productId}/barcodes`
+
+```json
+{ "barcode": "9876543210", "quantity": 1.0 }
+```
+
+**Response:** `201 Created`
+
+#### DELETE `/{productId}/barcodes` - Elimina tutti i barcode del prodotto
+
+**Response:** `204 No Content`
+
+---
+
+### Varianti collegate al prodotto
+
+#### GET `/{productId}/variant-ingredients`
+
+Lista delle varianti collegate al prodotto (con ordine di visualizzazione).
+
+#### POST `/{productId}/variant-ingredients`
+
+```json
+{ "variantId": "uuid", "sortOrder": 1 }
+```
+
+**Response:** `201 Created`
+
+#### DELETE `/{productId}/variant-ingredients/{variantId}` → `204 No Content`
+
+---
+
+### Ingredienti (magazzino)
+
+#### POST `/{productId}/ingredients`
 
 ```json
 { "warehouseItemId": "uuid", "quantityUsed": 0.3 }
@@ -357,15 +467,15 @@ Profilo completo dell'utente autenticato.
 
 **Response:** `201 Created`
 
----
+#### GET `/{productId}/ingredients`
 
-### GET `/{productId}/ingredients`
-
-### DELETE `/{productId}/ingredients/{warehouseItemId}` → `204 No Content`
+#### DELETE `/{productId}/ingredients/{warehouseItemId}` → `204 No Content`
 
 ---
 
-### POST `/{productId}/extra-costs` - Aggiungi costo extra (food cost)
+### Costi extra (food cost)
+
+#### POST `/{productId}/extra-costs`
 
 ```json
 { "name": "Imballaggio", "costPerUnit": 0.30 }
@@ -373,17 +483,15 @@ Profilo completo dell'utente autenticato.
 
 **Response:** `201 Created`
 
----
+#### GET `/{productId}/extra-costs`
 
-### GET `/{productId}/extra-costs`
-
-### PUT `/{productId}/extra-costs/{id}`
+#### PUT `/{productId}/extra-costs/{id}`
 
 ```json
 { "name": "Imballaggio XL", "costPerUnit": 0.50 }
 ```
 
-### DELETE `/{productId}/extra-costs/{id}` → `204 No Content`
+#### DELETE `/{productId}/extra-costs/{id}` → `204 No Content`
 
 ---
 
@@ -425,7 +533,8 @@ Filtri opzionali: `?categoryId={uuid}` oppure `?productId={uuid}`
   "categoryId": null,
   "productId": "uuid",
   "sortOrder": 1,
-  "active": true
+  "active": true,
+  "imageUrl": "https://..."
 }
 ```
 
@@ -476,8 +585,6 @@ Filtri opzionali: `?categoryId={uuid}` oppure `?productId={uuid}`
 ```json
 { "amount": 25.0 }
 ```
-
----
 
 ### POST `/{itemId}/deduct-stock`
 
@@ -774,6 +881,16 @@ Il backend ricalcola gli sconti prima di salvare. Non e' necessario passare `dis
 
 ---
 
+### GET `/export?startDate=2026-01-01&endDate=2026-01-31` - Export CSV
+
+Scarica un file CSV con tutti gli scontrini del periodo.
+
+**Response 200:** file `text/csv` con header `Content-Disposition: attachment; filename=scontrini_YYYYMMDD_YYYYMMDD.csv`
+
+Colonne: `Data, N.Scontrino, Tipo, Metodo Pagamento, Operatore, Totale`
+
+---
+
 ## 9. Statistiche (`/license/{userId}/activities/{activityId}/statistics`)
 
 Le statistiche vengono aggiornate automaticamente ad ogni scontrino salvato. Solo lettura.
@@ -802,9 +919,9 @@ Filtri opzionali:
 
 ## 10. Analytics (`/license/{userId}/activities/{activityId}/analytics`)
 
-Calcolate in tempo reale dagli scontrini. Tutti gli endpoint accettano `?startDate=2026-01-01&endDate=2026-01-31`.
+Calcolate in tempo reale dagli scontrini. `startDate` e `endDate` sono **obbligatori** per tutti gli endpoint (formato `YYYY-MM-DD`).
 
-### GET `/overview`
+### GET `/overview?startDate=2026-01-01&endDate=2026-01-31`
 
 ```json
 {
@@ -815,7 +932,7 @@ Calcolate in tempo reale dagli scontrini. Tutti gli endpoint accettano `?startDa
 }
 ```
 
-### GET `/by-category`
+### GET `/by-category?startDate=...&endDate=...`
 
 ```json
 [
@@ -823,7 +940,7 @@ Calcolate in tempo reale dagli scontrini. Tutti gli endpoint accettano `?startDa
 ]
 ```
 
-### GET `/by-product`
+### GET `/by-product?startDate=...&endDate=...`
 
 ```json
 [
@@ -831,7 +948,7 @@ Calcolate in tempo reale dagli scontrini. Tutti gli endpoint accettano `?startDa
 ]
 ```
 
-### GET `/by-hour`
+### GET `/by-hour?startDate=...&endDate=...`
 
 ```json
 [
@@ -840,11 +957,19 @@ Calcolate in tempo reale dagli scontrini. Tutti gli endpoint accettano `?startDa
 ]
 ```
 
-### GET `/daily`
+### GET `/daily?startDate=...&endDate=...`
 
 ```json
 [
   { "date": "2026-01-15", "revenue": 380.00, "transactions": 11 }
+]
+```
+
+### GET `/by-operator?startDate=...&endDate=...`
+
+```json
+[
+  { "operatorCode": "OP01", "operatorName": "Mario", "quantity": 55, "total": 1200.00 }
 ]
 ```
 
@@ -915,6 +1040,8 @@ Lista di tutte le sessioni con `status: ACTIVE`.
 
 ### DELETE `/{sessionId}` - Chiudi sessione
 
+Chiude la sessione e cancella automaticamente gli ordini in stato `PENDING` o `PREPARING` o `READY` associati al tavolo.
+
 **Response 200:** oggetto sessione con `status: CLOSED` e `closedAt` valorizzato.
 
 ---
@@ -950,7 +1077,103 @@ Errore `404` se il codice non esiste o la sessione e' chiusa.
 
 ---
 
-## 13. GDPR (`/license/{userId}/activities/{activityId}/gdpr`)
+## 13. Operatori (`/license/{userId}/activities/{activityId}/operators`)
+
+Gestione operatori/cassieri associati all'attivita'.
+
+### GET - Lista operatori
+
+**Response 200:** `List<Operator>`
+
+---
+
+### POST - Crea operatore
+
+```json
+{ "name": "Mario Rossi", "code": "OP01" }
+```
+
+**Response:** `201 Created` con oggetto Operator.
+
+---
+
+### PUT `/{operatorId}` - Aggiorna operatore
+
+```json
+{ "name": "Mario Rossi", "code": "OP01", "active": true }
+```
+
+**Response 200:** oggetto Operator aggiornato.
+
+---
+
+### DELETE `/{operatorId}` - Disattiva operatore → `204 No Content`
+
+---
+
+## 14. Stampanti (`/license/{userId}/activities/{activityId}/printers`)
+
+Configurazione stampanti ESC/POS per scontrini e ordini.
+
+### POST - Aggiungi stampante
+
+```json
+{
+  "name": "Cassa principale",
+  "connectionType": "NETWORK",
+  "ipAddress": "192.168.1.100",
+  "port": 9100,
+  "deviceAddress": null,
+  "paperWidth": 80,
+  "copies": 1
+}
+```
+
+| connectionType | Uso |
+|---|---|
+| `NETWORK` | Stampante di rete (TCP/IP) — usare `ipAddress` e `port` |
+| `USB` | USB locale — usare `deviceAddress` (path dispositivo) |
+| `BLUETOOTH` | Bluetooth — usare `deviceAddress` (indirizzo MAC) |
+
+> `paperWidth`: larghezza carta in mm, valori supportati `58` o `80` (default: `80`).
+> `copies`: numero di copie per stampa (default: `1`).
+> `port`: default `9100` se non specificato.
+
+**Response:** `201 Created` con oggetto EscposPrinter.
+
+> Alla creazione: `printReceipts = true`, `printOrders = false`, `active = true`.
+
+---
+
+### GET - Lista stampanti
+
+**Response 200:** `List<EscposPrinter>`
+
+---
+
+### GET `/{printerId}` - Singola stampante
+
+---
+
+### PUT `/{printerId}` - Aggiorna stampante
+
+Stessi campi di POST piu':
+
+```json
+{
+  "printReceipts": true,
+  "printOrders": true,
+  "active": true
+}
+```
+
+---
+
+### DELETE `/{printerId}` → `204 No Content`
+
+---
+
+## 15. GDPR (`/license/{userId}/activities/{activityId}/gdpr`)
 
 ### GET `/customers/{customerId}` - Esporta dati (Art. 15)
 
@@ -996,7 +1219,7 @@ Errore `409` se i dati sono gia' stati cancellati.
 
 ---
 
-## 14. Admin (`/admin`) *(solo ruolo ADMIN)*
+## 16. Admin (`/admin`) *(solo ruolo ADMIN)*
 
 ### Clienti
 
@@ -1015,6 +1238,8 @@ Errore `409` se i dati sono gia' stati cancellati.
   "licenseExpireAt": "2027-12-31"
 }
 ```
+
+**Response:** `201 Created`
 
 #### PUT `/admin/clients/{clientId}` - Aggiorna cliente
 
@@ -1112,7 +1337,7 @@ Cronologia di tutte le azioni significative nel sistema. Ordinati per data decre
 
 ---
 
-## 15. Menu Digitale (`/license/{userId}/activities/{activityId}/menu`)
+## 17. Menu Digitale (`/license/{userId}/activities/{activityId}/menu`)
 
 ### Categorie menu
 
@@ -1133,7 +1358,7 @@ Cronologia di tutte le azioni significative nel sistema. Ordinati per data decre
 
 Tutti i campi opzionali tranne `name`.
 
-**Response 201:** oggetto `MenuCategory` con `id, name, description, color, icon, imageUrl, sortOrder, active`
+**Response 200:** oggetto `MenuCategory` con `id, name, description, color, icon, imageUrl, sortOrder, active`
 
 ---
 
@@ -1179,7 +1404,7 @@ Tutti i campi opzionali tranne `name`.
 }
 ```
 
-**Response 201:** oggetto `MenuItem` con `id, menuCategoryId, name, description, price, imageUrl, allergens, vegetarian, vegan, glutenFree, spicy, available, displayOrder`
+**Response 200:** oggetto `MenuItem`
 
 ---
 
@@ -1207,7 +1432,7 @@ Crea una categoria menu e importa prodotti POS selezionati come voci menu. Se `p
 
 ---
 
-## 16. Ordini da Menu (`/license/{userId}/activities/{activityId}/menu-orders`)
+## 18. Ordini da Menu (`/license/{userId}/activities/{activityId}/menu-orders`)
 
 ### GET `/[?status=PENDING]` → `List<MenuOrder>`
 
@@ -1221,17 +1446,50 @@ Valori status: `PENDING`, `PREPARING`, `READY`, `DELIVERED`, `CANCELLED`
 { "status": "PREPARING" }
 ```
 
+Emette evento SSE `ORDER_STATUS_CHANGED` ai client connessi.
+
 **Response 200:** oggetto `MenuOrder` aggiornato
 
 ---
 
-## Menu Pubblico (`/public/menu/{publicCode}`) *(nessun auth)*
+## 19. Menu Pubblico (`/public/menu/{publicCode}`) *(nessun auth)*
 
 Endpoint pubblici usati da menuconnesso.
 
 ### GET `/public/menu/{publicCode}`
 
-Restituisce il menu pubblico dell'attivita' (prodotti e categorie visibili).
+Restituisce il menu pubblico dell'attivita' (solo categorie attive e voci disponibili).
+
+**Response 200:**
+```json
+{
+  "activityName": "Pizzeria Mario",
+  "categories": [
+    { "id": "uuid", "name": "Pizze", "description": "...", "color": "#FF0000", "icon": "pizza", "imageUrl": null, "sortOrder": 1, "active": true }
+  ],
+  "menuItems": [
+    {
+      "id": "uuid",
+      "menuCategory": "Pizze",
+      "name": "Margherita",
+      "description": "...",
+      "price": 8.00,
+      "imageUrl": null,
+      "allergens": ["glutine"],
+      "vegetarian": true,
+      "vegan": false,
+      "glutenFree": false,
+      "spicy": false,
+      "available": true,
+      "displayOrder": 1
+    }
+  ]
+}
+```
+
+> `menuCategory` nel menuItem e' il **nome** della categoria (stringa), non l'ID.
+
+---
 
 ### POST `/public/menu/{publicCode}/orders`
 
@@ -1241,15 +1499,37 @@ Invia un ordine dal menu digitale.
 {
   "tableNumber": "5",
   "sessionCode": "HK3T7R",
+  "generalNotes": "Senza cipolla su tutto",
   "items": [
-    { "productId": "uuid", "quantity": 2, "notes": "senza cipolla" }
+    { "menuItemId": "uuid", "name": "Margherita", "quantity": 2, "unitPrice": 8.00, "notes": "senza cipolla" }
   ]
 }
 ```
 
 > `sessionCode` e' opzionale. Se presente, viene validato e il `tableNumber` viene ricavato dalla sessione (ignorando quello nel body).
+> `generalNotes` e' opzionale: note generali sull'intero ordine.
 
-### POST `/public/menu/{publicCode}/validate-session`
+**Response 201:**
+```json
+{ "id": "uuid", "tableNumber": "5", "status": "PENDING", "createdAt": "2026-03-02T20:15:00" }
+```
+
+Emette evento SSE `NEW_ORDER` ai client connessi.
+
+---
+
+### GET `/public/menu/{publicCode}/orders/{orderId}` - Stato ordine
+
+Permette al cliente di verificare lo stato del proprio ordine.
+
+**Response 200:**
+```json
+{ "id": "uuid", "status": "PREPARING", "tableNumber": "5" }
+```
+
+---
+
+### POST `/public/menu/{publicCode}/validate-session` *(pubblico)*
 
 Vedi sezione 12.
 
@@ -1257,7 +1537,7 @@ Vedi sezione 12.
 
 ### POST `/public/menu/{publicCode}/call-waiter?table=5` *(pubblico)*
 
-Segnala la richiesta di un cameriere per il tavolo indicato. La chiamata viene accodata lato backend.
+Segnala la richiesta di un cameriere per il tavolo indicato.
 
 **Response:** `200 OK`
 
@@ -1265,9 +1545,39 @@ Segnala la richiesta di un cameriere per il tavolo indicato. La chiamata viene a
 
 ### DELETE `/public/menu/{publicCode}/call-waiter?table=5` *(pubblico)*
 
-Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere ha risposto).
+Rimuove la chiamata cameriere per il tavolo indicato.
 
 **Response:** `200 OK`
+
+---
+
+## 20. SSE - Eventi in tempo reale (`/license/{userId}/activities/{activityId}/events`)
+
+### GET `/events` *(richiede Bearer token)*
+
+Apre una connessione Server-Sent Events per ricevere notifiche in tempo reale sull'attivita'.
+
+**Response:** `text/event-stream` — connessione persistente.
+
+Il server invia un heartbeat ogni 20 secondi (evento `heartbeat`, data `"ping"`) per mantenere la connessione attiva.
+
+**Eventi emessi:**
+
+| Event name | Payload | Quando |
+|---|---|---|
+| `NEW_ORDER` | `{ "id": "uuid", "tableNumber": "5", "itemCount": 3 }` | Nuovo ordine ricevuto dal menu pubblico |
+| `ORDER_STATUS_CHANGED` | `{ "id": "uuid", "tableNumber": "5", "status": "PREPARING" }` | Stato ordine aggiornato dal cassiere |
+| `TABLE_SESSION_CLOSED` | `{ "tableNumber": "5" }` | Sessione tavolo chiusa |
+| `LOW_STOCK_ALERT` | `{ "itemId": "uuid", "name": "Farina 00", "quantity": 2.5 }` | Articolo magazzino sotto soglia minima |
+| `heartbeat` | `"ping"` | Keepalive ogni 20 secondi |
+
+**Esempio JavaScript:**
+```js
+const es = new EventSource('/api/v1/license/{userId}/activities/{activityId}/events', {
+  headers: { Authorization: 'Bearer ...' }
+});
+es.addEventListener('NEW_ORDER', e => console.log(JSON.parse(e.data)));
+```
 
 ---
 
@@ -1306,7 +1616,7 @@ Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere 
 | email | String | Email |
 | sdiCode | String | Codice SDI |
 | pec | String | PEC |
-| loyaltyConfig | LoyaltyConfig | Configurazione punti |
+| loyaltyConfig | LoyaltyConfig | Configurazione punti (nullable) |
 
 **ActivityType:** `SOLE_PROPRIETORSHIP`, `SIMPLE_PARTNERSHIP`, `GENERAL_PARTNERSHIP`, `LIMITED_PARTNERSHIP`, `LIMITED_LIABILITY_COMPANY`, `JOINT_STOCK_COMPANY`, `COOPERATIVE`
 
@@ -1316,7 +1626,7 @@ Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere 
 
 | Campo | Tipo | Descrizione |
 |---|---|---|
-| id | UUID | ID (`@JsonProperty("id")`) |
+| id | UUID | ID |
 | activityId | UUID | Attivita' |
 | parentCategoryId | UUID | Categoria padre (null = radice) |
 | name | String | Nome |
@@ -1330,6 +1640,9 @@ Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere 
 | visibleRetail | boolean | Visibile modalita' retail |
 | visibleRestaurant | boolean | Visibile modalita' ristorante |
 | visibleTakeaway | boolean | Visibile modalita' asporto |
+| visibleKiosk | boolean | Visibile modalita' chiosco |
+| visibleHandheld | boolean | Visibile su dispositivo portatile |
+| showImage | boolean | Mostra immagine nel POS |
 | hidden | boolean | Nascosta |
 | active | boolean | Attiva |
 | fiscal | boolean | Fiscale |
@@ -1340,11 +1653,11 @@ Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere 
 
 | Campo | Tipo | Descrizione |
 |---|---|---|
-| id | UUID | ID (`@JsonProperty("id")`) |
+| id | UUID | ID |
 | categoryId | UUID | Categoria |
 | name | String | Nome |
 | description | String | Descrizione |
-| barcode | String | Codice a barre |
+| barcode | String | Codice a barre principale |
 | imageUrl | String | URL immagine |
 | color | String | Colore |
 | basePrice | BigDecimal | Prezzo base (listino 1) |
@@ -1356,6 +1669,22 @@ Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere 
 | vatNature | String | Natura IVA |
 | active | boolean | Attivo |
 | fiscal | boolean | Fiscale |
+| weighted | boolean | Prodotto a peso |
+| showImage | boolean | Mostra immagine nel POS |
+| manageIngredients | boolean | Gestione ingredienti attiva |
+| allergens | String | Allergeni (testo libero) |
+| visibleKiosk | boolean | Visibile su chiosco |
+| visibleHandheld | boolean | Visibile su portatile |
+| hasImage | boolean | Ha un'immagine caricata direttamente |
+
+---
+
+### ProductBarcode
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| barcode | String | Codice a barre |
+| quantity | BigDecimal | Quantita' per unita' (es. 0.5 per prodotti sfusi) |
 
 ---
 
@@ -1372,6 +1701,7 @@ Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere 
 | productId | UUID | Prodotto associato (nullable) |
 | active | boolean | Attiva |
 | sortOrder | int | Ordinamento |
+| imageUrl | String | URL immagine (nullable) |
 
 ---
 
@@ -1506,6 +1836,39 @@ Rimuove la chiamata cameriere per il tavolo indicato (es. dopo che il cameriere 
 | details | String | Dettagli aggiuntivi (nullable) |
 | status | AuditStatus | `SUCCESS` o `FAILURE` |
 | createdAt | LocalDateTime | Timestamp |
+
+---
+
+### Operator
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| name | String | Nome operatore |
+| code | String | Codice operatore (es. `OP01`) |
+| active | boolean | Attivo |
+| createdAt | LocalDateTime | Data creazione |
+
+---
+
+### EscposPrinter
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| name | String | Nome stampante |
+| connectionType | String | `NETWORK`, `USB`, `BLUETOOTH` |
+| ipAddress | String | Indirizzo IP (nullable, per NETWORK) |
+| port | int | Porta TCP (default: 9100, per NETWORK) |
+| deviceAddress | String | Path USB o MAC Bluetooth (nullable) |
+| paperWidth | int | Larghezza carta in mm (`58` o `80`) |
+| copies | int | Numero copie per stampa |
+| printReceipts | boolean | Stampa scontrini |
+| printOrders | boolean | Stampa ordini cucina |
+| active | boolean | Attiva |
+| createdAt | LocalDateTime | Data creazione |
 
 ---
 
