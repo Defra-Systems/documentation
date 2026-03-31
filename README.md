@@ -58,12 +58,6 @@ Authorization: Bearer {accessToken}
 
 ---
 
-### POST `/auth/login/admin`
-
-Stesso body e stessa struttura di risposta di `/auth/login/client`, con `userType: "ADMIN"`.
-
----
-
 ### POST `/auth/verify-2fa`
 
 ```json
@@ -1701,23 +1695,6 @@ es.addEventListener('NEW_ORDER', e => console.log(JSON.parse(e.data)));
 | data | String | JSON con i dati |
 | createdAt | LocalDateTime | Creazione |
 | updatedAt | LocalDateTime | Ultimo aggiornamento |
-
----
-
-### AuditLog
-
-| Campo | Tipo | Descrizione |
-|---|---|---|
-| id | UUID | ID |
-| userId | UUID | Utente che ha eseguito l'azione |
-| userRole | String | `ADMIN` o `CLIENT` |
-| action | String | Azione eseguita (es. `LOGIN`) |
-| resourceType | String | Tipo risorsa coinvolta (es. `AUTH`, `CLIENT`) |
-| resourceId | String | ID risorsa (nullable) |
-| ipAddress | String | IP del client (nullable) |
-| details | String | Dettagli aggiuntivi (nullable) |
-| status | AuditStatus | `SUCCESS` o `FAILURE` |
-| createdAt | LocalDateTime | Timestamp |
 
 ---
 
