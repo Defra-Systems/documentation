@@ -327,6 +327,7 @@ Singola attivita'.
   "categoryId": "uuid",
   "name": "Margherita",
   "description": "Pizza classica",
+  "extendedDescription": "Descrizione lunga senza limiti, mostrata su kiosk e menu digitale.",
   "barcode": "1234567890",
   "imageUrl": "https://...",
   "imageBase64": "data:image/png;base64,...",
@@ -380,6 +381,7 @@ Restituisce i byte dell'immagine con l'header `Content-Type` appropriato (es. `i
 {
   "name": "Margherita XL",
   "description": "Pizza classica grande",
+  "extendedDescription": "...",
   "barcode": "1234567890",
   "imageUrl": "https://...",
   "imageBase64": null,
@@ -1549,6 +1551,7 @@ es.addEventListener('NEW_ORDER', e => console.log(JSON.parse(e.data)));
 | showImage | boolean | Mostra immagine nel POS |
 | manageIngredients | boolean | Gestione ingredienti attiva |
 | allergens | String | Allergeni (testo libero) |
+| extendedDescription | String | Descrizione lunga senza limiti (nullable) — mostrata su kiosk e menu digitale |
 | visibleKiosk | boolean | Visibile su chiosco |
 | visibleHandheld | boolean | Visibile su portatile |
 | hasImage | boolean | Ha un'immagine caricata direttamente |
