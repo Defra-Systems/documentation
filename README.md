@@ -340,7 +340,8 @@ Singola attivita'.
   "manageIngredients": false,
   "allergens": "glutine, lattosio",
   "visibleKiosk": true,
-  "visibleHandheld": true
+  "visibleHandheld": true,
+  "allYouCanEat": false
 }
 ```
 
@@ -401,9 +402,43 @@ Restituisce i byte dell'immagine con l'header `Content-Type` appropriato (es. `i
   "manageIngredients": false,
   "allergens": "glutine",
   "visibleKiosk": true,
-  "visibleHandheld": true
+  "visibleHandheld": true,
+  "allYouCanEat": false
 }
 ```
+
+---
+
+### POST `/import` - Importa prodotti da Excel
+
+Importazione bulk da file `.xlsx`. Richiede `multipart/form-data` con campo `file`.
+
+**Formato atteso del foglio (riga 1 = intestazione, dati da riga 2):**
+
+| Colonna | Campo | Obbl. | Note |
+|---|---|---|---|
+| A | name | ✓ | Nome prodotto |
+| B | description | ✓ | Descrizione |
+| C | categoryId | ✓ | UUID categoria |
+| D | barcode | | Codice a barre |
+| E | basePrice | ✓ | Prezzo (numerico) |
+| F | iva | ✓ | IVA % (intero) |
+| G | extendedDescription | | Descrizione estesa |
+| H | color | | Colore esadecimale (es. `#FF0000`) |
+| I | allYouCanEat | | `TRUE`/`FALSE` |
+
+**Response 200:**
+```json
+{
+  "imported": 42,
+  "errors": [
+    "Row 5: Missing required field: name",
+    "Row 12: Product name already exists for this activity"
+  ]
+}
+```
+
+Le righe con errore vengono saltate; le altre vengono importate. `errors` è vuoto se tutto va a buon fine.
 
 ---
 
@@ -1459,6 +1494,142 @@ es.addEventListener('NEW_ORDER', e => console.log(JSON.parse(e.data)));
 
 ---
 
+## 20. Centri di Produzione (`/license/{userId}/activities/{activityId}/production-centers`)
+
+I centri di produzione (KDS — Kitchen Display System) rappresentano le stazioni fisiche dove i prodotti vengono preparati (es. cucina, bar, pizzeria).
+
+### POST - Crea centro di produzione
+
+```json
+{
+  "name": "Cucina",
+  "type": "PRIMARY"
+}
+```
+
+**Valori `type`:** `PRIMARY` | `SECONDARY`
+
+**Response:** `201 Created` → `ProductionCenter`
+
+---
+
+### GET - Lista centri per attivita'
+
+**Response:** `200 OK` → `List<ProductionCenter>`
+
+---
+
+### GET `/{id}` - Singolo centro
+
+**Response:** `200 OK` → `ProductionCenter`
+
+---
+
+### PUT `/{id}` - Aggiorna centro
+
+```json
+{
+  "name": "Cucina Calda",
+  "type": "SECONDARY",
+  "active": false
+}
+```
+
+Tutti i campi sono opzionali (patch semantics).
+
+**Response:** `200 OK` → `ProductionCenter`
+
+---
+
+### DELETE `/{id}` - Elimina centro
+
+Elimina il centro e tutte le assegnazioni prodotto/categoria collegate.
+
+**Response:** `204 No Content`
+
+---
+
+### Assegnazioni prodotti a un centro
+
+#### PUT `/{id}/products`
+
+Sostituisce l'intera lista di prodotti assegnati al centro.
+
+```json
+{ "productIds": ["uuid1", "uuid2"] }
+```
+
+**Response:** `204 No Content`
+
+#### GET `/{id}/products`
+
+**Response:** `200 OK` → `List<ProductProductionCenter>`
+
+---
+
+### Assegnazioni categorie a un centro
+
+#### PUT `/{id}/categories`
+
+Sostituisce l'intera lista di categorie assegnate al centro.
+
+```json
+{ "categoryIds": ["uuid1", "uuid2"] }
+```
+
+**Response:** `204 No Content`
+
+#### GET `/{id}/categories`
+
+**Response:** `200 OK` → `List<CategoryProductionCenter>`
+
+---
+
+### Assegnazioni dal lato prodotto
+
+#### PUT `/by-product/{productId}`
+
+Imposta i centri di produzione per un singolo prodotto (sostituisce tutti gli esistenti).
+
+```json
+{ "productionCenterIds": ["uuid1", "uuid2"] }
+```
+
+**Response:** `204 No Content`
+
+#### GET `/by-product/{productId}`
+
+**Response:** `200 OK` → `List<ProductProductionCenter>`
+
+---
+
+### Assegnazioni dal lato categoria
+
+#### PUT `/by-category/{categoryId}`
+
+Imposta i centri di produzione per una singola categoria.
+
+```json
+{ "productionCenterIds": ["uuid1"] }
+```
+
+**Response:** `204 No Content`
+
+#### GET `/by-category/{categoryId}`
+
+**Response:** `200 OK` → `List<CategoryProductionCenter>`
+
+---
+
+### POST `/propagate-from-category/{categoryId}` - Propaga dalla categoria ai prodotti
+
+Copia le assegnazioni di centri di produzione della categoria su tutti i prodotti che appartengono ad essa.  
+Utile per allineare rapidamente l'intera categoria dopo averla configurata.
+
+**Response:** `204 No Content`
+
+---
+
 ## Modelli Dati
 
 ### ClientUser
@@ -1555,6 +1726,7 @@ es.addEventListener('NEW_ORDER', e => console.log(JSON.parse(e.data)));
 | visibleKiosk | boolean | Visibile su chiosco |
 | visibleHandheld | boolean | Visibile su portatile |
 | hasImage | boolean | Ha un'immagine caricata direttamente |
+| allYouCanEat | boolean | Prodotto incluso in formula All You Can Eat |
 
 ---
 
@@ -1830,4 +2002,49 @@ es.addEventListener('NEW_ORDER', e => console.log(JSON.parse(e.data)));
 | code | String | Codice 6 caratteri (es. `HK3T7R`) |
 | status | SessionStatus | `ACTIVE` o `CLOSED` |
 | createdAt | LocalDateTime | Apertura sessione |
+
+---
+
+### ProductionCenter
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | UUID | ID |
+| activityId | UUID | Attivita' |
+| name | String | Nome (es. "Cucina", "Bar") |
+| type | ProductionCenterType | `PRIMARY` o `SECONDARY` |
+| active | boolean | Attivo |
+| createdAt | LocalDateTime | Data creazione |
+| updatedAt | LocalDateTime | Ultima modifica |
+
+---
+
+### ProductProductionCenter
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | Long | ID auto-increment |
+| productId | UUID | Prodotto |
+| productionCenterId | UUID | Centro di produzione |
+| sortOrder | int | Ordine di visualizzazione |
+
+---
+
+### CategoryProductionCenter
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| id | Long | ID auto-increment |
+| categoryId | UUID | Categoria |
+| productionCenterId | UUID | Centro di produzione |
+| sortOrder | int | Ordine di visualizzazione |
+
+---
+
+### ExcelImportResult
+
+| Campo | Tipo | Descrizione |
+|---|---|---|
+| imported | int | Numero di righe importate con successo |
+| errors | List\<String\> | Errori per riga (es. `"Row 5: Missing required field: name"`) |
 | closedAt | LocalDateTime | Chiusura sessione (nullable) |
