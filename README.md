@@ -295,7 +295,6 @@ Singola attivita'.
   "defaultVat": 10,
   "color": "#FF0000",
   "icon": "pizza",
-  "imageUrl": "https://...",
   "sortOrder": 1,
   "vatNature": null,
   "visibleRetail": true,
@@ -329,7 +328,6 @@ Singola attivita'.
   "description": "Pizza classica",
   "extendedDescription": "Descrizione lunga senza limiti, mostrata su kiosk e menu digitale.",
   "barcode": "1234567890",
-  "imageUrl": "https://...",
   "imageBase64": "data:image/png;base64,...",
   "imageContentType": "image/png",
   "color": "#FFA500",
@@ -345,14 +343,15 @@ Singola attivita'.
 }
 ```
 
-**Gestione immagini — due modalita' indipendenti e non esclusive:**
+> `imageBase64` + `imageContentType`: dimensione massima **5 MB** decodificata.
+
+**Gestione immagini:**
 
 | Campo | Comportamento |
 |---|---|
-| `imageUrl` | URL esterno (CDN, S3, ecc.). Il server lo salva e lo restituisce cos' com'e' nel Product, senza alcuna elaborazione. |
 | `imageBase64` + `imageContentType` | Il server decodifica e salva il file su disco. Imposta `hasImage: true` nel Product. Il server **non genera nessun URL**: per recuperare l'immagine bisogna chiamare `GET /{productId}/image`. |
 
-I due campi possono coesistere sullo stesso prodotto. `imageContentType` default: `image/jpeg` se omesso.
+`imageContentType` default: `image/jpeg` se omesso.
 
 **Response:** `201 Created`
 
@@ -384,7 +383,6 @@ Restituisce i byte dell'immagine con l'header `Content-Type` appropriato (es. `i
   "description": "Pizza classica grande",
   "extendedDescription": "...",
   "barcode": "1234567890",
-  "imageUrl": "https://...",
   "imageBase64": null,
   "imageContentType": null,
   "color": "#FFA500",
@@ -412,6 +410,8 @@ Restituisce i byte dell'immagine con l'header `Content-Type` appropriato (es. `i
 ### POST `/import` - Importa prodotti da Excel
 
 Importazione bulk da file `.xlsx`. Richiede `multipart/form-data` con campo `file`.
+
+> Dimensione massima file: **10 MB**. Tipi accettati: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (.xlsx) o `application/vnd.ms-excel` (.xls). Errore `400` se il file è vuoto, troppo grande o di tipo errato.
 
 **Formato atteso del foglio (riga 1 = intestazione, dati da riga 2):**
 
@@ -699,7 +699,6 @@ Errore `400` se quantita' insufficiente.
   "email": "anna@example.com",
   "phone": "+39123456789",
   "active": true,
-  "activityIds": ["uuid1"],
   "categoryIds": ["cat-uuid1"],
   "birthDate": "1990-05-15",
   "gender": "F"
@@ -716,13 +715,15 @@ Tutti i campi opzionali (null = non modificare).
 { "amount": 10 }
 ```
 
+`amount` deve essere un intero positivo (> 0).
+
 #### POST `/customers/{customerId}/points/subtract`
 
 ```json
 { "amount": 5 }
 ```
 
-Errore `400` se punti insufficienti.
+`amount` deve essere positivo. Errore `400` se punti insufficienti.
 
 ---
 
@@ -732,13 +733,15 @@ Errore `400` se punti insufficienti.
 { "amount": 50.00 }
 ```
 
+`amount` deve essere positivo (> 0).
+
 #### POST `/customers/{customerId}/credit/use`
 
 ```json
 { "amount": 20.00 }
 ```
 
-Errore `400` se credito insufficiente.
+`amount` deve essere positivo. Errore `400` se credito insufficiente.
 
 ---
 
@@ -747,6 +750,8 @@ Errore `400` se credito insufficiente.
 ```json
 { "discount": 15 }
 ```
+
+`discount` deve essere compreso tra `0` e `100`.
 
 ---
 
@@ -779,6 +784,7 @@ Riscatta un premio sottraendo i punti necessari. Se tipo `CREDIT`, aggiunge il v
 
 - `global: true` → sconto su tutto il catalogo
 - `endDate: null` → nessuna scadenza
+- `discountPercent` deve essere tra `0` e `100`
 
 **Response:** `201 Created`
 
@@ -802,6 +808,9 @@ Riscatta un premio sottraendo i punti necessari. Se tipo `CREDIT`, aggiunge il v
   "description": "10 euro di credito"
 }
 ```
+
+- `pointsCost` deve essere positivo (> 0)
+- `value` deve essere positivo se valorizzato
 
 | rewardType | Effetto al riscatto |
 |---|---|
@@ -1166,9 +1175,9 @@ Configurazione stampanti ESC/POS per scontrini e ordini.
 | `USB` | USB locale — usare `deviceAddress` (path dispositivo) |
 | `BLUETOOTH` | Bluetooth — usare `deviceAddress` (indirizzo MAC) |
 
-> `paperWidth`: larghezza carta in mm, valori supportati `58` o `80` (default: `80`).
-> `copies`: numero di copie per stampa (default: `1`).
-> `port`: default `9100` se non specificato.
+> `paperWidth`: larghezza carta in mm, valori supportati `58` o `80` (default: `80`). Range valido: 1–1000.
+> `copies`: numero di copie per stampa (default: `1`). Range valido: 1–99.
+> `port`: default `9100` se non specificato. Range valido: 1–65535.
 
 **Response:** `201 Created` con oggetto EscposPrinter.
 
@@ -1264,14 +1273,13 @@ Errore `409` se i dati sono gia' stati cancellati.
   "description": "...",
   "color": "#FF0000",
   "icon": "utensils",
-  "imageUrl": "https://...",
   "sortOrder": 1
 }
 ```
 
 Tutti i campi opzionali tranne `name`.
 
-**Response 200:** oggetto `MenuCategory` con `id, name, description, color, icon, imageUrl, sortOrder, active`
+**Response 200:** oggetto `MenuCategory` con `id, name, description, color, icon, sortOrder, active`
 
 ---
 
@@ -1283,7 +1291,6 @@ Tutti i campi opzionali tranne `name`.
   "description": "...",
   "color": "#FF0000",
   "icon": "utensils",
-  "imageUrl": "https://...",
   "sortOrder": 1,
   "active": true
 }
@@ -1307,7 +1314,6 @@ Tutti i campi opzionali tranne `name`.
   "name": "Bruschetta",
   "price": 5.50,
   "description": "...",
-  "imageUrl": "https://...",
   "allergens": ["glutine", "pomodoro"],
   "vegetarian": true,
   "vegan": false,
@@ -1378,7 +1384,7 @@ Restituisce il menu pubblico dell'attivita' (solo categorie attive e voci dispon
 {
   "activityName": "Pizzeria Mario",
   "categories": [
-    { "id": "uuid", "name": "Pizze", "description": "...", "color": "#FF0000", "icon": "pizza", "imageUrl": null, "sortOrder": 1, "active": true }
+    { "id": "uuid", "name": "Pizze", "description": "...", "color": "#FF0000", "icon": "pizza", "sortOrder": 1, "active": true }
   ],
   "menuItems": [
     {
@@ -1387,7 +1393,6 @@ Restituisce il menu pubblico dell'attivita' (solo categorie attive e voci dispon
       "name": "Margherita",
       "description": "...",
       "price": 8.00,
-      "imageUrl": null,
       "allergens": ["glutine"],
       "vegetarian": true,
       "vegan": false,
@@ -1503,11 +1508,14 @@ I centri di produzione (KDS — Kitchen Display System) rappresentano le stazion
 ```json
 {
   "name": "Cucina",
-  "type": "PRIMARY"
+  "type": "PRIMARY",
+  "printerId": "uuid-or-null"
 }
 ```
 
 **Valori `type`:** `PRIMARY` | `SECONDARY`
+
+> `printerId`: UUID della stampante ESC/POS assegnata a questo centro (opzionale). Le comande generate da prodotti assegnati a questo centro verranno inviate a quella stampante.
 
 **Response:** `201 Created` → `ProductionCenter`
 
@@ -1531,11 +1539,16 @@ I centri di produzione (KDS — Kitchen Display System) rappresentano le stazion
 {
   "name": "Cucina Calda",
   "type": "SECONDARY",
-  "active": false
+  "active": false,
+  "printerId": "uuid",
+  "clearPrinter": false
 }
 ```
 
 Tutti i campi sono opzionali (patch semantics).
+
+> `printerId`: assegna o sostituisce la stampante del centro.
+> `clearPrinter: true`: rimuove la stampante assegnata (ha precedenza su `printerId`).
 
 **Response:** `200 OK` → `ProductionCenter`
 
@@ -1707,7 +1720,6 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 | name | String | Nome |
 | description | String | Descrizione |
 | barcode | String | Codice a barre principale |
-| imageUrl | String | URL immagine |
 | color | String | Colore |
 | basePrice | BigDecimal | Prezzo base (listino 1) |
 | priceList2 | BigDecimal | Prezzo listino 2 |
@@ -1915,7 +1927,6 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 | description | String | Descrizione (nullable) |
 | color | String | Colore hex (nullable) |
 | icon | String | Icona (nullable) |
-| imageUrl | String | URL immagine (nullable) |
 | sortOrder | int | Ordinamento |
 | active | boolean | Attiva |
 
@@ -1930,7 +1941,6 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 | name | String | Nome |
 | description | String | Descrizione (nullable) |
 | price | BigDecimal | Prezzo |
-| imageUrl | String | URL immagine (nullable) |
 | allergens | List\<String\> | Allergeni |
 | vegetarian | boolean | Vegetariano |
 | vegan | boolean | Vegano |
@@ -2013,6 +2023,7 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 | activityId | UUID | Attivita' |
 | name | String | Nome (es. "Cucina", "Bar") |
 | type | ProductionCenterType | `PRIMARY` o `SECONDARY` |
+| printerId | UUID | Stampante assegnata (nullable) |
 | active | boolean | Attivo |
 | createdAt | LocalDateTime | Data creazione |
 | updatedAt | LocalDateTime | Ultima modifica |
