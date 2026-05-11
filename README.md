@@ -144,6 +144,20 @@ userId e userType vengono letti dal JWT — non vanno nel body.
 
 ## 2. Profilo e Attivita' (`/license`)
 
+### GET `/license/activity-types` *(nessun auth)*
+
+Lista dei tipi di societa' disponibili per la creazione di attivita'.
+
+**Response 200:**
+```json
+[
+  { "value": "SOLE_PROPRIETORSHIP", "label": "Ditta Individuale" },
+  { "value": "LIMITED_LIABILITY_COMPANY", "label": "Societa' a Responsabilita' Limitata" }
+]
+```
+
+---
+
 ### GET `/license/verify?publicCode=ABC123` *(nessun auth)*
 
 Verifica la validita' di un codice pubblico licenza.
@@ -219,6 +233,8 @@ Singola attivita'.
 
 ### PUT `/license/{userId}/activities/{activityId}`
 
+Tutti i campi sono opzionali (patch semantics). `viewerMode` e `menuBannerImage` vengono aggiornati solo se presenti nel body.
+
 ```json
 {
   "businessName": "Mario Rossi S.r.l.",
@@ -229,9 +245,13 @@ Singola attivita'.
   "phone": "+39 02 1234567",
   "email": "info@pizzeriamario.it",
   "sdiCode": "XXXXXXX",
-  "pec": "mario@pec.it"
+  "pec": "mario@pec.it",
+  "viewerMode": false,
+  "menuBannerImage": "data:image/jpeg;base64,..."
 }
 ```
+
+> `menuBannerImage`: immagine base64 (JPEG/PNG/WEBP) mostrata in cima al menu digitale. Inviare stringa vuota `""` per rimuoverla. Colonna `LONGTEXT` — nessun limite di dimensione pratico.
 
 **Response 200:** oggetto Activity aggiornato.
 
@@ -1279,11 +1299,13 @@ Errore `409` se i dati sono gia' stati cancellati.
 
 Tutti i campi opzionali tranne `name`.
 
-**Response 200:** oggetto `MenuCategory` con `id, name, description, color, icon, sortOrder, active`
+**Response 200:** oggetto `MenuCategory` con `id, name, description, color, icon, sortOrder, active, bannerImage`
 
 ---
 
 #### PUT `/categories/{categoryId}`
+
+Tutti i campi opzionali (patch semantics).
 
 ```json
 {
@@ -1292,9 +1314,12 @@ Tutti i campi opzionali tranne `name`.
   "color": "#FF0000",
   "icon": "utensils",
   "sortOrder": 1,
-  "active": true
+  "active": true,
+  "bannerImage": "data:image/jpeg;base64,..."
 }
 ```
+
+> `bannerImage`: immagine banner per la singola categoria (base64). Inviare `""` per rimuoverla. Usato nel menu pubblico per categoria se presente.
 
 ---
 
@@ -1383,8 +1408,19 @@ Restituisce il menu pubblico dell'attivita' (solo categorie attive e voci dispon
 ```json
 {
   "activityName": "Pizzeria Mario",
+  "viewerMode": false,
+  "bannerImage": "data:image/jpeg;base64,...",
   "categories": [
-    { "id": "uuid", "name": "Pizze", "description": "...", "color": "#FF0000", "icon": "pizza", "sortOrder": 1, "active": true }
+    {
+      "id": "uuid",
+      "name": "Pizze",
+      "description": "...",
+      "color": "#FF0000",
+      "icon": "pizza",
+      "sortOrder": 1,
+      "active": true,
+      "bannerImage": null
+    }
   ],
   "menuItems": [
     {
@@ -1405,6 +1441,9 @@ Restituisce il menu pubblico dell'attivita' (solo categorie attive e voci dispon
 }
 ```
 
+> `bannerImage` (top-level): banner dell'activity (`menuBannerImage`), mostrato in cima al menu.
+> `viewerMode`: se `true`, il menu e' in sola lettura (nessun ordine possibile).
+> `bannerImage` nelle categorie: banner specifico per categoria (nullable).
 > `menuCategory` nel menuItem e' il **nome** della categoria (stringa), non l'ID.
 
 ---
@@ -1678,6 +1717,8 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 | email | String | Email |
 | sdiCode | String | Codice SDI |
 | pec | String | PEC |
+| viewerMode | boolean | Menu in sola visualizzazione (no ordini) |
+| menuBannerImage | String | Immagine banner in cima al menu digitale (base64, LONGTEXT, nullable) |
 | loyaltyConfig | LoyaltyConfig | Configurazione punti (nullable) |
 
 **ActivityType:** `SOLE_PROPRIETORSHIP`, `SIMPLE_PARTNERSHIP`, `GENERAL_PARTNERSHIP`, `LIMITED_PARTNERSHIP`, `LIMITED_LIABILITY_COMPANY`, `JOINT_STOCK_COMPANY`, `COOPERATIVE`
@@ -1929,6 +1970,7 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 | icon | String | Icona (nullable) |
 | sortOrder | int | Ordinamento |
 | active | boolean | Attiva |
+| bannerImage | String | Immagine banner specifica della categoria (base64, nullable) |
 
 ---
 
@@ -2012,6 +2054,7 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 | code | String | Codice 6 caratteri (es. `HK3T7R`) |
 | status | SessionStatus | `ACTIVE` o `CLOSED` |
 | createdAt | LocalDateTime | Apertura sessione |
+| closedAt | LocalDateTime | Chiusura sessione (null se ancora attiva) |
 
 ---
 
@@ -2058,4 +2101,3 @@ Utile per allineare rapidamente l'intera categoria dopo averla configurata.
 |---|---|---|
 | imported | int | Numero di righe importate con successo |
 | errors | List\<String\> | Errori per riga (es. `"Row 5: Missing required field: name"`) |
-| closedAt | LocalDateTime | Chiusura sessione (nullable) |
